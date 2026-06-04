@@ -30,6 +30,25 @@ impl Peekaboo {
         path: Option<PathBuf>,
         retina: bool,
     ) -> Result<ImageCapture> {
+        self.capture_image(mode, path, retina, None)
+    }
+
+    pub fn image_region(
+        &self,
+        bounds: Bounds,
+        path: Option<PathBuf>,
+        retina: bool,
+    ) -> Result<ImageCapture> {
+        self.capture_image(ImageMode::Screen, path, retina, Some(bounds))
+    }
+
+    fn capture_image(
+        &self,
+        mode: ImageMode,
+        path: Option<PathBuf>,
+        retina: bool,
+        region: Option<Bounds>,
+    ) -> Result<ImageCapture> {
         require_macos("image")?;
         let path = match path {
             Some(path) => expand_home(path),
@@ -44,6 +63,13 @@ impl Peekaboo {
         let mut args = vec!["-x".to_string()];
         if mode == ImageMode::Window {
             args.push("-w".to_string());
+        }
+        if let Some(region) = &region {
+            args.push("-R".to_string());
+            args.push(format!(
+                "{},{},{},{}",
+                region.x, region.y, region.width, region.height
+            ));
         }
         if !retina {
             args.push("-r".to_string());

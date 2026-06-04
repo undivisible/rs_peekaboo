@@ -1,18 +1,29 @@
 # rs_peekaboo
 
-Rust-native rewrite of Peekaboo's computer-use core.
+Rust-native rewrite of Peekaboo's computer-use core for macOS automation.
 
 `rs_peekaboo` focuses on capture, UI inspection, input, app/window/menu control,
 clipboard, permissions, scripts, and structured JSON output. It intentionally
 does not include model providers, hosted API keys, telemetry, or an assistant UI.
 
-## Build
+## Install
+
+From crates.io after release:
 
 ```bash
-cargo build --release
+cargo install rs_peekaboo
 ```
 
-## Examples
+From source:
+
+```bash
+git clone https://github.com/undivisible/rs_peekaboo
+cd rs_peekaboo
+cargo build --release
+cargo install --path .
+```
+
+## CLI
 
 ```bash
 rs-peekaboo image --mode screen --path ~/Desktop/screen.png
@@ -25,17 +36,187 @@ rs-peekaboo app launch --app Safari
 rs-peekaboo clipboard read --json
 ```
 
-## Commands
+Global flags:
 
-`see`, `image`, `list`, `click`, `type`, `press`, `hotkey`, `paste`, `scroll`,
-`swipe`, `drag`, `move`, `set-value`, `perform-action`, `window`, `app`, `open`,
-`menu`, `clipboard`, `permissions`, `run`, `sleep`, `clean`, `tools`, and
-`completions`.
+| Flag | Description |
+| --- | --- |
+| `--json` | Print structured JSON instead of human output. |
+| `--json-output` | Alias for `--json`. |
+
+Commands:
+
+| Command | Purpose |
+| --- | --- |
+| `see` | Capture an image and cache a UI snapshot. |
+| `image` | Capture a screen or focused window image. |
+| `list apps` | List running apps/processes. |
+| `list windows` | Return app/window accessibility context. |
+| `list screens` | Return display information. |
+| `list menubar` | Inspect the system menu bar. |
+| `list permissions` | Probe screen recording, accessibility, and clipboard access. |
+| `click` | Click a coordinate or UI element query. |
+| `type` | Type text into the active UI. |
+| `press` | Press a named key. |
+| `hotkey` | Press a key combination such as `cmd,l`. |
+| `paste` | Paste text while restoring the previous clipboard where possible. |
+| `scroll` | Scroll up, down, left, or right. |
+| `swipe` | Swipe between two coordinates. |
+| `drag` | Drag between two coordinates. |
+| `move` | Move the pointer to a coordinate or UI element query. |
+| `set-value` | Set the value of a resolved UI element. |
+| `perform-action` | Perform an accessibility action on a resolved UI element. |
+| `window` | List, focus, close, minimize, move, resize, or set window bounds. |
+| `app` | List, launch, switch, quit, hide, or unhide apps. |
+| `open` | Open a path or URL, optionally with a specific app. |
+| `menu` | List or click menu items. |
+| `clipboard` | Read or write the clipboard. |
+| `permissions` | Probe automation permissions. |
+| `run` | Execute a JSON automation script. |
+| `sleep` | Sleep for a number of seconds. |
+| `clean` | Remove cached snapshots. |
+| `tools` | Print the command catalog. |
+| `completions` | Generate shell completions. |
+
+## JSON Output
+
+```bash
+rs-peekaboo image --mode screen --json
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "path": "/var/folders/.../rs_peekaboo_x.png",
+    "mode": "screen",
+    "bytes": 123456,
+    "mime_type": "image/png"
+  }
+}
+```
+
+```bash
+rs-peekaboo see --app Safari --json
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "snapshot_id": "snap-...",
+    "elements": [
+      {
+        "id": "window:Safari:Example",
+        "role": "window",
+        "label": "Example",
+        "app": "Safari",
+        "window": "Example",
+        "bounds": {
+          "x": 0,
+          "y": 25,
+          "width": 1200,
+          "height": 800
+        },
+        "state": {
+          "minimized": false
+        }
+      }
+    ]
+  }
+}
+```
+
+## Library
+
+```rust
+use rs_peekaboo::automation::Target;
+use rs_peekaboo::{Bounds, Direction, ImageMode, Peekaboo, Point};
+
+fn main() -> rs_peekaboo::Result<()> {
+    let peekaboo = Peekaboo::new();
+
+    let image = peekaboo.image(ImageMode::Screen, None, true)?;
+    let region = peekaboo.image_region(
+        Bounds {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        },
+        None,
+        true,
+    )?;
+    let elements = peekaboo.ui_elements(None)?;
+
+    peekaboo.click(Target::Point(Point { x: 500, y: 300 }), "left", 1)?;
+    peekaboo.type_text("hello", false, false, None)?;
+    peekaboo.hotkey(&["cmd", "l"])?;
+    peekaboo.scroll(Direction::Down, 3)?;
+    peekaboo.window("focus", Some("Safari"), None)?;
+    peekaboo.app("launch", Some("Safari"))?;
+    peekaboo.menu("list", "Safari", None, None)?;
+    peekaboo.clipboard_write("copied")?;
+
+    println!("{} {} {}", image.bytes, region.bytes, elements.len());
+    Ok(())
+}
+```
+
+## Scripts
+
+`run` accepts a JSON file with ordered steps:
+
+```json
+{
+  "steps": [
+    {
+      "command": "hotkey",
+      "args": {
+        "keys": "cmd,l"
+      }
+    },
+    {
+      "command": "type",
+      "args": {
+        "text": "https://example.com"
+      }
+    },
+    {
+      "command": "sleep",
+      "args": {
+        "duration_ms": 250
+      }
+    }
+  ]
+}
+```
+
+```bash
+rs-peekaboo run ./script.json --json
+```
+
+## Permissions
+
+Most actions require macOS Accessibility permission for the terminal or host app
+running `rs-peekaboo`. Screen capture requires Screen Recording permission.
+Clipboard commands require clipboard access in the current user session.
+
+Probe status:
+
+```bash
+rs-peekaboo permissions status --json
+```
 
 ## Platform
 
 macOS is the primary target. Non-macOS builds compile and return explicit
 unsupported-platform errors for macOS automation commands.
+
+## Folk Around
+
+`rs_peekaboo` is standalone. It is designed so MCP hosts such as
+`folk-around` can call the Rust computer-use engine directly instead of
+shelling out to AppleScript helpers.
 
 ## License
 

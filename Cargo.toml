@@ -2,8 +2,16 @@
 name = "rs_peekaboo"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+rust-version = "1.85"
+license = "MPL-2.0"
 description = "Rust-native macOS automation crate inspired by Peekaboo"
+readme = "README.md"
+repository = "https://github.com/undivisible/rs_peekaboo"
+keywords = ["macos", "automation", "accessibility", "cli", "computer-use"]
+
+[[bin]]
+name = "rs-peekaboo"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive", "env"] }

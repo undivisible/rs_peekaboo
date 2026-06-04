@@ -3,7 +3,7 @@ use predicates::prelude::*;
 
 #[test]
 fn tools_should_print_catalog() {
-    let mut cmd = Command::cargo_bin("rs_peekaboo").unwrap();
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
     cmd.arg("tools")
         .assert()
         .success()
@@ -12,7 +12,7 @@ fn tools_should_print_catalog() {
 
 #[test]
 fn help_should_include_core_commands() {
-    let mut cmd = Command::cargo_bin("rs_peekaboo").unwrap();
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
     cmd.arg("--help")
         .assert()
         .success()
@@ -21,7 +21,7 @@ fn help_should_include_core_commands() {
 
 #[test]
 fn completions_should_print_shell_script() {
-    let mut cmd = Command::cargo_bin("rs_peekaboo").unwrap();
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
     cmd.args(["completions", "zsh"])
         .assert()
         .success()

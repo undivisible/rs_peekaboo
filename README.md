@@ -36,3 +36,7 @@ rs-peekaboo clipboard read --json
 
 macOS is the primary target. Non-macOS builds compile and return explicit
 unsupported-platform errors for macOS automation commands.
+
+## License
+
+MPL-2.0.

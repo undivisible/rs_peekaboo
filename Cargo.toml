@@ -4,10 +4,13 @@ version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MPL-2.0"
-description = "Rust-native macOS automation crate inspired by Peekaboo"
+description = "Rust-native computer-use CLI and library for macOS automation"
 readme = "README.md"
 repository = "https://github.com/undivisible/rs_peekaboo"
+homepage = "https://github.com/undivisible/rs_peekaboo"
+documentation = "https://docs.rs/rs_peekaboo"
 keywords = ["macos", "automation", "accessibility", "cli", "computer-use"]
+categories = ["command-line-utilities", "os::macos-apis"]
 
 [[bin]]
 name = "rs-peekaboo"

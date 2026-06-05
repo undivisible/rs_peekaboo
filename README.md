@@ -1,6 +1,6 @@
 # rs_peekaboo
 
-Rust-native rewrite of Peekaboo's computer-use core for macOS automation.
+Rust-native computer-use CLI and library for macOS automation.
 
 `rs_peekaboo` focuses on capture, UI inspection, input, app/window/menu control,
 clipboard, permissions, scripts, and structured JSON output. It intentionally

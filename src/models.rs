@@ -88,6 +88,14 @@ pub struct ImageCapture {
     pub mime_type: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ShellOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub status: i32,
+    pub success: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandResult {
     pub ok: bool,

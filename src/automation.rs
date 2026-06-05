@@ -147,6 +147,11 @@ impl Peekaboo {
         Ok(parsed)
     }
 
+    pub fn shell(&self, command: &str, cwd: Option<&Path>) -> Result<ShellOutput> {
+        let (program, args) = shell_command(command);
+        run_status(program, &args, None, cwd)
+    }
+
     pub fn permissions(&self) -> Value {
         json!({
             "platform": std::env::consts::OS,
@@ -533,6 +538,14 @@ end tell"#,
                     .ok_or(PeekabooError::MissingArgument("coords"))?;
                 self.click(Target::Point(parse_point(coords)?), "left", 1)
             }
+            "shell" => {
+                let command = args
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .ok_or(PeekabooError::MissingArgument("command"))?;
+                let cwd = args.get("cwd").and_then(Value::as_str).map(Path::new);
+                Ok(serde_json::to_value(self.shell(command, cwd)?)?)
+            }
             _ => Err(PeekabooError::MissingArgument("command")),
         }
     }
@@ -695,8 +708,30 @@ fn osascript(script: &str) -> Result<ProcessOutput> {
 }
 
 fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<ProcessOutput> {
+    let output = run_status(program, args, input, None)?;
+    if !output.success {
+        return Err(PeekabooError::CommandFailed {
+            program: program.to_string(),
+            status: output.status,
+            stderr: output.stderr,
+        });
+    }
+    Ok(ProcessOutput {
+        stdout: output.stdout,
+    })
+}
+
+fn run_status(
+    program: &str,
+    args: &[&str],
+    input: Option<&str>,
+    cwd: Option<&Path>,
+) -> Result<ShellOutput> {
     let mut command = Command::new(program);
     command.args(args.iter().map(OsStr::new));
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     if input.is_some() {
         command.stdin(Stdio::piped());
@@ -711,14 +746,22 @@ fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<ProcessOutpu
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    if !output.status.success() {
-        return Err(PeekabooError::CommandFailed {
-            program: program.to_string(),
-            status,
-            stderr,
-        });
-    }
-    Ok(ProcessOutput { stdout })
+    Ok(ShellOutput {
+        stdout,
+        stderr,
+        status,
+        success: output.status.success(),
+    })
+}
+
+#[cfg(windows)]
+fn shell_command(command: &str) -> (&str, [&str; 2]) {
+    ("cmd", ["/C", command])
+}
+
+#[cfg(not(windows))]
+fn shell_command(command: &str) -> (&str, [&str; 2]) {
+    ("/bin/sh", ["-c", command])
 }
 
 #[derive(Clone, Debug)]

@@ -34,6 +34,7 @@ rs-peekaboo hotkey cmd,l
 rs-peekaboo window list --json
 rs-peekaboo app launch --app Safari
 rs-peekaboo clipboard read --json
+rs-peekaboo shell "fastfetch --logo none" --json
 ```
 
 Global flags:
@@ -71,6 +72,7 @@ Commands:
 | `menu` | List or click menu items. |
 | `clipboard` | Read or write the clipboard. |
 | `permissions` | Probe automation permissions. |
+| `shell` | Run a shell command and return stdout, stderr, and exit status. |
 | `run` | Execute a JSON automation script. |
 | `sleep` | Sleep for a number of seconds. |
 | `clean` | Remove cached snapshots. |
@@ -195,6 +197,22 @@ fn main() -> rs_peekaboo::Result<()> {
 rs-peekaboo run ./script.json --json
 ```
 
+Shell steps are also supported:
+
+```json
+{
+  "steps": [
+    {
+      "command": "shell",
+      "args": {
+        "command": "pwd",
+        "cwd": "/tmp"
+      }
+    }
+  ]
+}
+```
+
 ## Permissions
 
 Most actions require macOS Accessibility permission for the terminal or host app
@@ -210,7 +228,8 @@ rs-peekaboo permissions status --json
 ## Platform
 
 macOS is the primary target. Non-macOS builds compile and return explicit
-unsupported-platform errors for macOS automation commands.
+unsupported-platform errors for macOS automation commands. Shell execution is
+cross-platform and uses the host shell.
 
 ## Folk Around
 

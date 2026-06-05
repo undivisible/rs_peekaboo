@@ -40,6 +40,7 @@ pub enum Commands {
     Menu(MenuArgs),
     Clipboard(ClipboardArgs),
     Permissions(PermissionsArgs),
+    Shell(ShellArgs),
     Run(RunArgs),
     Sleep(SleepArgs),
     Clean(CleanArgs),
@@ -297,6 +298,13 @@ pub enum PermissionAction {
 }
 
 #[derive(Args, Debug)]
+pub struct ShellArgs {
+    pub command: String,
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
 pub struct RunArgs {
     pub file: PathBuf,
 }
@@ -407,6 +415,9 @@ pub fn execute(cli: Cli) -> Result<()> {
             ClipboardAction::Write(write) => peekaboo.clipboard_write(&write.text)?,
         })?,
         Commands::Permissions(_) => CommandResult::ok(peekaboo.permissions())?,
+        Commands::Shell(args) => {
+            CommandResult::ok(peekaboo.shell(&args.command, args.cwd.as_deref())?)?
+        }
         Commands::Run(args) => CommandResult::ok(peekaboo.run_file(&args.file)?)?,
         Commands::Sleep(args) => {
             let millis = (args.duration * 1000.0).max(0.0) as u64;
@@ -522,6 +533,7 @@ fn tool_catalog() -> Value {
         "menu",
         "clipboard",
         "permissions",
+        "shell",
         "run",
         "sleep",
         "clean",

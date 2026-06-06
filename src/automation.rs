@@ -231,6 +231,9 @@ impl Peekaboo {
     pub fn press(&self, key: &str, count: u32, delay_ms: Option<u64>) -> Result<Value> {
         require_macos("press")?;
         let key = key_code_name(key);
+        if key.is_empty() {
+            return Err(PeekabooError::MissingArgument("key"));
+        }
         let count = count.max(1);
         for index in 0..count {
             osascript(&format!(
@@ -702,7 +705,7 @@ fn key_code_name(key: &str) -> &'static str {
         "right" => "124",
         "down" => "125",
         "up" => "126",
-        _ => "36",
+        _ => "",
     }
 }
 
@@ -1004,5 +1007,10 @@ mod tests {
     #[test]
     fn split_keys_should_accept_commas_and_pluses() {
         assert_eq!(split_keys("cmd,shift+t"), vec!["cmd", "shift", "t"]);
+    }
+
+    #[test]
+    fn key_code_name_should_reject_unknown_keys() {
+        assert_eq!(key_code_name("nope"), "");
     }
 }

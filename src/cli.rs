@@ -360,7 +360,8 @@ pub fn execute(cli: Cli) -> Result<()> {
             ListKind::Permissions => peekaboo.permissions(),
         })?,
         Commands::Click(args) => {
-            CommandResult::ok(peekaboo.click(target_from_click(args)?, "left", 1)?)?
+            let (target, button, count) = click_request(args)?;
+            CommandResult::ok(peekaboo.click(target, &button, count)?)?
         }
         Commands::Type(args) => CommandResult::ok(peekaboo.type_text(
             args.text.as_deref().unwrap_or_default(),
@@ -445,6 +446,12 @@ fn target_from_click(args: ClickArgs) -> Result<Target> {
         query,
         snapshot: args.snapshot,
     })
+}
+
+fn click_request(args: ClickArgs) -> Result<(Target, String, u32)> {
+    let button = args.button.clone();
+    let count = args.count;
+    Ok((target_from_click(args)?, button, count))
 }
 
 fn target_from_move(args: MoveArgs) -> Result<Target> {
@@ -569,5 +576,27 @@ fn print_human(value: &Value) {
             "{}",
             serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn click_command_should_preserve_button_and_count() {
+        let args = ClickArgs {
+            target: None,
+            on: None,
+            coords: Some("10,20".to_string()),
+            snapshot: None,
+            button: "right".to_string(),
+            count: 3,
+        };
+
+        let (_, button, count) = click_request(args).expect("click args should parse");
+
+        assert_eq!(button, "right");
+        assert_eq!(count, 3);
     }
 }

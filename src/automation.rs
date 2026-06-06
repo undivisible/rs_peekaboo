@@ -49,7 +49,6 @@ impl Peekaboo {
         retina: bool,
         region: Option<Bounds>,
     ) -> Result<ImageCapture> {
-        require_macos("image")?;
         let path = match path {
             Some(path) => expand_home(path),
             None => Builder::new()
@@ -60,11 +59,28 @@ impl Peekaboo {
                 .keep()
                 .map_err(|err| err.error)?,
         };
+        platform_capture_image(mode, &path, retina, region.as_ref())?;
+        let bytes = std::fs::metadata(&path)?.len();
+        Ok(ImageCapture {
+            path,
+            mode,
+            bytes,
+            mime_type: "image/png".to_string(),
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn capture_image_macos(
+        mode: ImageMode,
+        path: &Path,
+        retina: bool,
+        region: Option<&Bounds>,
+    ) -> Result<()> {
         let mut args = vec!["-x".to_string()];
         if mode == ImageMode::Window {
             args.push("-w".to_string());
         }
-        if let Some(region) = &region {
+        if let Some(region) = region {
             args.push("-R".to_string());
             args.push(format!(
                 "{},{},{},{}",
@@ -77,13 +93,7 @@ impl Peekaboo {
         args.push(path.to_string_lossy().into_owned());
         let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
         run("screencapture", &refs, None)?;
-        let bytes = std::fs::metadata(&path)?.len();
-        Ok(ImageCapture {
-            path,
-            mode,
-            bytes,
-            mime_type: "image/png".to_string(),
-        })
+        Ok(())
     }
 
     pub fn see(
@@ -489,13 +499,11 @@ end tell"#,
     }
 
     pub fn clipboard_read(&self) -> Result<String> {
-        require_macos("clipboard")?;
-        Ok(run("pbpaste", &[], None)?.stdout)
+        platform_clipboard_read()
     }
 
     pub fn clipboard_write(&self, text: &str) -> Result<Value> {
-        require_macos("clipboard")?;
-        run("pbcopy", &[], Some(text))?;
+        platform_clipboard_write(text)?;
         Ok(json!({ "bytes": text.len() }))
     }
 
@@ -778,6 +786,133 @@ fn probe_osascript(script: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+fn platform_capture_image(
+    mode: ImageMode,
+    path: &Path,
+    retina: bool,
+    region: Option<&Bounds>,
+) -> Result<()> {
+    Peekaboo::capture_image_macos(mode, path, retina, region)
+}
+
+#[cfg(target_os = "windows")]
+fn platform_capture_image(
+    mode: ImageMode,
+    path: &Path,
+    _retina: bool,
+    region: Option<&Bounds>,
+) -> Result<()> {
+    if mode != ImageMode::Screen {
+        return Err(PeekabooError::UnsupportedPlatform("image mode"));
+    }
+    run_powershell(&windows_screenshot_script(path, region))?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_capture_image(
+    _mode: ImageMode,
+    _path: &Path,
+    _retina: bool,
+    _region: Option<&Bounds>,
+) -> Result<()> {
+    Err(PeekabooError::UnsupportedPlatform("image"))
+}
+
+#[cfg(target_os = "macos")]
+fn platform_clipboard_read() -> Result<String> {
+    Ok(run("pbpaste", &[], None)?.stdout)
+}
+
+#[cfg(target_os = "windows")]
+fn platform_clipboard_read() -> Result<String> {
+    Ok(run_powershell("Get-Clipboard -Raw")?.stdout)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_clipboard_read() -> Result<String> {
+    Err(PeekabooError::UnsupportedPlatform("clipboard"))
+}
+
+#[cfg(target_os = "macos")]
+fn platform_clipboard_write(text: &str) -> Result<()> {
+    run("pbcopy", &[], Some(text))?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn platform_clipboard_write(text: &str) -> Result<()> {
+    run_powershell(&windows_clipboard_write_script(text))?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_clipboard_write(_text: &str) -> Result<()> {
+    Err(PeekabooError::UnsupportedPlatform("clipboard"))
+}
+
+#[cfg(target_os = "windows")]
+fn run_powershell(script: &str) -> Result<ProcessOutput> {
+    run(
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        None,
+    )
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_clipboard_write_script(text: &str) -> String {
+    format!("Set-Clipboard -Value {}", powershell_string(text))
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_screenshot_script(path: &Path, region: Option<&Bounds>) -> String {
+    let (source_x, source_y, width, height) = match region {
+        Some(bounds) => (
+            bounds.x.to_string(),
+            bounds.y.to_string(),
+            bounds.width.to_string(),
+            bounds.height.to_string(),
+        ),
+        None => (
+            "$bounds.X".to_string(),
+            "$bounds.Y".to_string(),
+            "$bounds.Width".to_string(),
+            "$bounds.Height".to_string(),
+        ),
+    };
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+Add-Type -AssemblyName System.Windows.Forms\n\
+Add-Type -AssemblyName System.Drawing\n\
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds\n\
+$sourceX = {source_x}\n\
+$sourceY = {source_y}\n\
+$width = {width}\n\
+$height = {height}\n\
+$bitmap = New-Object System.Drawing.Bitmap $width, $height\n\
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)\n\
+$graphics.CopyFromScreen($sourceX, $sourceY, 0, 0, $bitmap.Size)\n\
+$bitmap.Save({}, [System.Drawing.Imaging.ImageFormat]::Png)\n\
+$graphics.Dispose()\n\
+$bitmap.Dispose()",
+        powershell_string(&path.to_string_lossy())
+    )
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn powershell_string(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(target_os = "macos")]
 fn move_cursor_to(point: &Point) -> Result<()> {
     post_mouse(CGEventType::MouseMoved, point, CGMouseButton::Left)
 }
@@ -823,6 +958,42 @@ fn expand_home(path: PathBuf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_screenshot_script_should_save_png_to_requested_path() {
+        let script = windows_screenshot_script(Path::new(r"C:\Temp\peekaboo.png"), None);
+
+        assert!(script.contains("System.Windows.Forms"));
+        assert!(script.contains("CopyFromScreen"));
+        assert!(script.contains(r"C:\Temp\peekaboo.png"));
+        assert!(script.contains("ImageFormat]::Png"));
+    }
+
+    #[test]
+    fn windows_screenshot_script_should_crop_requested_region() {
+        let script = windows_screenshot_script(
+            Path::new(r"C:\Temp\peekaboo.png"),
+            Some(&Bounds {
+                x: 10,
+                y: 20,
+                width: 300,
+                height: 200,
+            }),
+        );
+
+        assert!(script.contains("$sourceX = 10"));
+        assert!(script.contains("$sourceY = 20"));
+        assert!(script.contains("$width = 300"));
+        assert!(script.contains("$height = 200"));
+    }
+
+    #[test]
+    fn windows_clipboard_write_script_should_quote_text() {
+        let script = windows_clipboard_write_script("it's copied");
+
+        assert!(script.contains("Set-Clipboard"));
+        assert!(script.contains("'it''s copied'"));
+    }
 
     #[test]
     fn parse_point_should_accept_comma_pair() {

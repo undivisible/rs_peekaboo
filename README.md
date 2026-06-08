@@ -1,6 +1,6 @@
 # rs_peekaboo
 
-Rust-native computer-use CLI and library for macOS automation.
+Rust-native cross-platform computer-use CLI and library for macOS, Windows, and Linux.
 
 `rs_peekaboo` focuses on capture, UI inspection, input, app/window/menu control,
 clipboard, permissions, scripts, and structured JSON output. It intentionally
@@ -227,9 +227,13 @@ rs-peekaboo permissions status --json
 
 ## Platform
 
-macOS is the primary target. Non-macOS builds compile and return explicit
-unsupported-platform errors for macOS automation commands. Shell execution is
-cross-platform and uses the host shell.
+| Platform | Capture | Input | UI snapshot | Notes |
+| --- | --- | --- | --- | --- |
+| macOS | `screencapture` | Accessibility / CoreGraphics | AppleScript | Full parity |
+| Windows | GDI+ screenshot | `SendInput` + `SendKeys` | UI Automation | PowerShell backend |
+| Linux | `grim` / `scrot` / ImageMagick | `xdotool` | `wmctrl` | X11-focused; Wayland uses `grim` + `wl-clipboard` where available |
+
+Shell execution is cross-platform and uses the host shell.
 
 ## Folk Around
 

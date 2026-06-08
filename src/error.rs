@@ -4,7 +4,7 @@ pub type Result<T> = std::result::Result<T, PeekabooError>;
 
 #[derive(Debug, Error)]
 pub enum PeekabooError {
-    #[error("macOS is required for `{0}`")]
+    #[error("`{0}` is not supported on this platform")]
     UnsupportedPlatform(&'static str),
     #[error("missing argument: {0}")]
     MissingArgument(&'static str),

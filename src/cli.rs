@@ -10,7 +10,7 @@ use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(name = "rs-peekaboo")]
-#[command(about = "Rust-native macOS automation CLI")]
+#[command(about = "Rust-native cross-platform computer-use CLI")]
 pub struct Cli {
     #[arg(long, global = true, visible_alias = "json-output")]
     pub json: bool,
@@ -469,21 +469,21 @@ fn target_from_move(args: MoveArgs) -> Result<Target> {
 
 fn window(peekaboo: &Peekaboo, action: WindowAction) -> Result<Value> {
     match action {
-        WindowAction::List => peekaboo.window("list", None, None),
-        WindowAction::Focus(args) => peekaboo.window("focus", Some(&args.app), None),
-        WindowAction::Close(args) => peekaboo.window("close", Some(&args.app), None),
-        WindowAction::Minimize(args) => peekaboo.window("minimize", Some(&args.app), None),
+        WindowAction::List => peekaboo.window("list", None, None, None),
+        WindowAction::Focus(args) => peekaboo.window("focus", Some(&args.app), None, None),
+        WindowAction::Close(args) => peekaboo.window("close", Some(&args.app), None, None),
+        WindowAction::Minimize(args) => peekaboo.window("minimize", Some(&args.app), None, None),
         WindowAction::Move(args) => {
             let app = args.app.clone();
-            peekaboo.window("move", Some(&app), Some(bounds(args)))
+            peekaboo.window("move", Some(&app), None, Some(bounds(args)))
         }
         WindowAction::Resize(args) => {
             let app = args.app.clone();
-            peekaboo.window("resize", Some(&app), Some(bounds(args)))
+            peekaboo.window("resize", Some(&app), None, Some(bounds(args)))
         }
         WindowAction::SetBounds(args) => {
             let app = args.app.clone();
-            peekaboo.window("set-bounds", Some(&app), Some(bounds(args)))
+            peekaboo.window("set-bounds", Some(&app), None, Some(bounds(args)))
         }
     }
 }

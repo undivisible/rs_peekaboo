@@ -1,16 +1,16 @@
 [package]
 name = "rs_peekaboo"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MPL-2.0"
-description = "Rust-native computer-use CLI and library for macOS automation"
+description = "Rust-native cross-platform computer-use CLI and library"
 readme = "README.md"
 repository = "https://github.com/undivisible/rs_peekaboo"
 homepage = "https://github.com/undivisible/rs_peekaboo"
 documentation = "https://docs.rs/rs_peekaboo"
-keywords = ["macos", "automation", "accessibility", "cli", "computer-use"]
-categories = ["command-line-utilities", "os::macos-apis"]
+keywords = ["automation", "accessibility", "cli", "computer-use", "cross-platform"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "rs-peekaboo"

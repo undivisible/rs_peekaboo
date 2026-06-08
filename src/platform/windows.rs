@@ -286,7 +286,6 @@ fn run_json(script: &str, input: &Value) -> Result<Value> {
     let command = prepare_powershell_command(script);
     let output = std::process::Command::new("powershell.exe")
         .arg("-NoProfile")
-        .arg("-NonInteractive")
         .arg("-STA")
         .arg("-ExecutionPolicy")
         .arg("Bypass")
@@ -378,91 +377,236 @@ $screens = [System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
 
 const MOUSE_SCRIPT: &str = r#"
 $inputObject = $args[0] | ConvertFrom-Json
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName WindowsBase
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct POINT { public int X; public int Y; }
+
+[StructLayout(LayoutKind.Sequential)]
+public struct MOUSEINPUT {
+  public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo;
+}
+
+[StructLayout(LayoutKind.Explicit)]
+public struct INPUT {
+  [FieldOffset(0)] public uint type;
+  [FieldOffset(8)] public MOUSEINPUT mi;
+}
+
 public class NativeMouse {
-  [StructLayout(LayoutKind.Sequential)]
-  public struct INPUT {
-    public uint type;
-    public MOUSEINPUT mi;
-  }
-  [StructLayout(LayoutKind.Sequential)]
-  public struct MOUSEINPUT {
-    public int dx;
-    public int dy;
-    public uint mouseData;
-    public uint dwFlags;
-    public uint time;
-    public IntPtr dwExtraInfo;
-  }
   public const uint INPUT_MOUSE = 0;
   public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
   public const uint MOUSEEVENTF_LEFTUP = 0x0004;
   public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
   public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
   public const uint MOUSEEVENTF_WHEEL = 0x0800;
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-  [DllImport("user32.dll")] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  public static readonly int InputSize = Marshal.SizeOf(typeof(INPUT));
+
+  [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  [DllImport("user32.dll", SetLastError = true)] static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+  [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr ProcessId);
+  [DllImport("user32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint attach, uint attachTo, bool attach);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT lpPoint);
+
+  public static void EnsureDpiAware() {
+    try { SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch {}
+  }
+
   public static void SendMouse(uint flags, uint data = 0) {
-    INPUT[] inputs = new INPUT[1];
+    var inputs = new INPUT[1];
     inputs[0].type = INPUT_MOUSE;
     inputs[0].mi.dwFlags = flags;
     inputs[0].mi.mouseData = data;
-    SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+    if (SendInput(1, inputs, InputSize) != 1) {
+      throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
   }
+
+  public static void FocusAt(int x, int y) {
+    var hwnd = WindowFromPoint(new POINT { X = x, Y = y });
+    if (hwnd == IntPtr.Zero) return;
+    var fg = GetForegroundWindow();
+    if (fg == hwnd) return;
+    uint fgThread = GetWindowThreadProcessId(fg, IntPtr.Zero);
+    uint curThread = GetCurrentThreadId();
+    if (fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
+    SetForegroundWindow(hwnd);
+    if (fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
+    Thread.Sleep(50);
+  }
+
+  public static void MoveTo(int x, int y) {
+    if (!SetCursorPos(x, y)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    Thread.Sleep(20);
+  }
+
   public static void Click(string button, int count) {
     uint down = button == "right" ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN;
     uint up = button == "right" ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP;
     for (int i = 0; i < count; i++) {
       SendMouse(down);
+      Thread.Sleep(10);
       SendMouse(up);
+      Thread.Sleep(20);
     }
   }
 }
 "@
-function Move-Cursor([int]$x, [int]$y) {
-  [NativeMouse]::SetCursorPos($x, $y) | Out-Null
-  Start-Sleep -Milliseconds 15
+
+function Invoke-UiClick([int]$x, [int]$y) {
+  $point = New-Object System.Windows.Point $x, $y
+  $element = [System.Windows.Automation.AutomationElement]::FromPoint($point)
+  if (-not $element) { return $false }
+  $invoke = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+  if ($invoke) { $invoke.Invoke(); return $true }
+  $toggle = $element.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+  if ($toggle) { $toggle.Toggle(); return $true }
+  return $false
 }
+
+[NativeMouse]::EnsureDpiAware()
+$usedFallback = $false
 if ($inputObject.action -eq "move") {
-  Move-Cursor ([int]$inputObject.x) ([int]$inputObject.y)
+  [NativeMouse]::MoveTo([int]$inputObject.x, [int]$inputObject.y)
 } elseif ($inputObject.action -eq "click") {
-  Move-Cursor ([int]$inputObject.x) ([int]$inputObject.y)
-  [NativeMouse]::Click([string]$inputObject.button, [int]$inputObject.count)
+  $x = [int]$inputObject.x
+  $y = [int]$inputObject.y
+  [NativeMouse]::FocusAt($x, $y)
+  [NativeMouse]::MoveTo($x, $y)
+  if ($inputObject.button -eq "left" -and [int]$inputObject.count -eq 1 -and (Invoke-UiClick $x $y)) {
+    $usedFallback = $true
+  } else {
+    try {
+      [NativeMouse]::Click([string]$inputObject.button, [int]$inputObject.count)
+    } catch {
+      if (-not (Invoke-UiClick $x $y)) { throw }
+      $usedFallback = $true
+    }
+  }
 } elseif ($inputObject.action -eq "drag") {
-  Move-Cursor ([int]$inputObject.from_x) ([int]$inputObject.from_y)
-  [NativeMouse]::SendMouse([NativeMouse]::MOUSEEVENTF_LEFTDOWN) | Out-Null
+  [NativeMouse]::MoveTo([int]$inputObject.from_x, [int]$inputObject.from_y)
+  [NativeMouse]::FocusAt([int]$inputObject.from_x, [int]$inputObject.from_y)
+  [NativeMouse]::SendMouse([NativeMouse]::MOUSEEVENTF_LEFTDOWN)
   Start-Sleep -Milliseconds ([Math]::Max(50, [int]$inputObject.duration_ms))
-  Move-Cursor ([int]$inputObject.to_x) ([int]$inputObject.to_y)
-  [NativeMouse]::SendMouse([NativeMouse]::MOUSEEVENTF_LEFTUP) | Out-Null
+  [NativeMouse]::MoveTo([int]$inputObject.to_x, [int]$inputObject.to_y)
+  [NativeMouse]::SendMouse([NativeMouse]::MOUSEEVENTF_LEFTUP)
 } elseif ($inputObject.action -eq "scroll") {
   $delta = if ([int]$inputObject.dy -ne 0) { -120 * [Math]::Sign([int]$inputObject.dy) } else { -120 * [Math]::Sign([int]$inputObject.dx) }
-  [NativeMouse]::SendMouse([NativeMouse]::MOUSEEVENTF_WHEEL, [uint32]$delta) | Out-Null
+  [NativeMouse]::SendMouse([NativeMouse]::MOUSEEVENTF_WHEEL, [uint32]$delta)
 }
-[pscustomobject]@{ ok = $true; action = $inputObject.action } | ConvertTo-Json -Compress
+[pscustomobject]@{ ok = $true; action = $inputObject.action; fallback = $usedFallback; input_size = [NativeMouse]::InputSize } | ConvertTo-Json -Compress
 "#;
 
 const KEYBOARD_SCRIPT: &str = r#"
 $inputObject = $args[0] | ConvertFrom-Json
 Add-Type -AssemblyName System.Windows.Forms
-function Send-KeysWait([string]$keys) {
-  [System.Windows.Forms.SendKeys]::SendWait($keys)
-  Start-Sleep -Milliseconds 25
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct POINT { public int X; public int Y; }
+
+[StructLayout(LayoutKind.Sequential)]
+public struct KEYBDINPUT {
+  public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo;
 }
+
+[StructLayout(LayoutKind.Explicit)]
+public struct INPUT {
+  [FieldOffset(0)] public uint type;
+  [FieldOffset(8)] public KEYBDINPUT ki;
+}
+
+public class NativeKeyboard {
+  public const uint INPUT_KEYBOARD = 1;
+  public const uint KEYEVENTF_KEYUP = 0x0002;
+  public static readonly int InputSize = Marshal.SizeOf(typeof(INPUT));
+
+  [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+  [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr ProcessId);
+  [DllImport("user32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint attach, uint attachTo, bool attach);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT lpPoint);
+
+  public static void EnsureDpiAware() {
+    try { SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch {}
+  }
+
+  public static void FocusCursorWindow() {
+    POINT pt;
+    if (!GetCursorPos(out pt)) return;
+    var hwnd = WindowFromPoint(pt);
+    if (hwnd == IntPtr.Zero) return;
+    var fg = GetForegroundWindow();
+    if (fg == hwnd) return;
+    uint fgThread = GetWindowThreadProcessId(fg, IntPtr.Zero);
+    uint curThread = GetCurrentThreadId();
+    if (fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
+    SetForegroundWindow(hwnd);
+    if (fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
+    Thread.Sleep(50);
+  }
+
+  static void SendKey(ushort vk, bool keyUp) {
+    var inputs = new INPUT[1];
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wVk = vk;
+    if (keyUp) inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
+    if (SendInput(1, inputs, InputSize) != 1) {
+      throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+  }
+
+  public static void Tap(ushort vk) {
+    SendKey(vk, false);
+    Thread.Sleep(10);
+    SendKey(vk, true);
+  }
+
+  public static void Chord(ushort mod, ushort key) {
+    SendKey(mod, false);
+    SendKey(key, false);
+    Thread.Sleep(10);
+    SendKey(key, true);
+    SendKey(mod, true);
+  }
+}
+"@
+
+function Send-KeysWait([string]$keys) {
+  [NativeKeyboard]::FocusCursorWindow()
+  [System.Windows.Forms.SendKeys]::SendWait($keys)
+  Start-Sleep -Milliseconds 40
+}
+
+[NativeKeyboard]::EnsureDpiAware()
+[NativeKeyboard]::FocusCursorWindow()
 if ($inputObject.action -eq "type") {
   if ($inputObject.clear) {
     Send-KeysWait("^a")
     Send-KeysWait("{BACKSPACE}")
   }
   $text = [string]$inputObject.text
-  if ($text.Length -le 1 -and $text -notmatch '[\+\^\%\~\(\)\{\}\[\]]') {
-    Send-KeysWait($text)
-  } else {
-    [System.Windows.Forms.Clipboard]::SetText($text)
-    Start-Sleep -Milliseconds 50
-    Send-KeysWait("^v")
-  }
+  [System.Windows.Forms.Clipboard]::SetText($text)
+  Start-Sleep -Milliseconds 80
+  Send-KeysWait("^v")
   if ($inputObject.return) { Send-KeysWait("{ENTER}") }
 } else {
   for ($i = 0; $i -lt [int]$inputObject.count; $i++) {
@@ -470,7 +614,7 @@ if ($inputObject.action -eq "type") {
     if ([int]$inputObject.delay_ms -gt 0) { Start-Sleep -Milliseconds ([int]$inputObject.delay_ms) }
   }
 }
-[pscustomobject]@{ ok = $true; action = $inputObject.action } | ConvertTo-Json -Compress
+[pscustomobject]@{ ok = $true; action = $inputObject.action; input_size = [NativeKeyboard]::InputSize } | ConvertTo-Json -Compress
 "#;
 
 const WINDOW_SCRIPT: &str = r#"

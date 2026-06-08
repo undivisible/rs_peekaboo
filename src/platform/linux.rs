@@ -16,7 +16,7 @@ pub fn capture_image(
         return Err(PeekabooError::UnsupportedPlatform("image mode"));
     }
     if process::probe("grim", &["--version"]) {
-        let mut args = vec!["-o", path.to_string_lossy().as_ref()];
+        let mut args = vec!["-o".to_string(), path.to_string_lossy().into_owned()];
         if let Some(bounds) = region {
             args.push("-g".to_string());
             args.push(format!(
@@ -326,7 +326,8 @@ pub fn app(action: &str, name: Option<&str>) -> Result<Value> {
             }
             Ok(json!({ "app": app, "action": action }))
         }
-        "hide" | "unhide" => Err(PeekabooError::UnsupportedPlatform(action)),
+        "hide" => Err(PeekabooError::UnsupportedPlatform("hide")),
+        "unhide" => Err(PeekabooError::UnsupportedPlatform("unhide")),
         _ => Err(PeekabooError::MissingArgument("action")),
     }
 }
@@ -513,13 +514,13 @@ fn window_bounds(window_id: &str) -> Result<Bounds> {
     })
 }
 
-fn xdotool_modifier(key: &str) -> &str {
+fn xdotool_modifier(key: &str) -> String {
     match key.to_ascii_lowercase().as_str() {
-        "cmd" | "command" | "super" | "meta" | "win" | "windows" => "super",
-        "ctrl" | "control" => "ctrl",
-        "alt" | "option" => "alt",
-        "shift" => "shift",
-        other => other,
+        "cmd" | "command" | "super" | "meta" | "win" | "windows" => "super".to_string(),
+        "ctrl" | "control" => "ctrl".to_string(),
+        "alt" | "option" => "alt".to_string(),
+        "shift" => "shift".to_string(),
+        other => other.to_string(),
     }
 }
 

@@ -137,6 +137,13 @@ pub fn permissions() -> Value {
     })
 }
 
+pub fn grant_permissions() -> Result<Value> {
+    Ok(json!({
+        "note": "Install xdotool, grim/scrot, and wl-clipboard/xclip; grant desktop access in your compositor session.",
+        "platform": "linux"
+    }))
+}
+
 pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {
     require_xdotool()?;
     process::run(
@@ -270,10 +277,15 @@ pub fn paste(text: &str) -> Result<Value> {
     let previous = clipboard_read().ok();
     clipboard_write(text)?;
     hotkey(&["ctrl", "v"])?;
-    if let Some(previous) = previous {
-        let _ = clipboard_write(&previous);
-    }
-    Ok(json!({ "pasted": text.len() }))
+    let clipboard_restored = if let Some(previous) = previous {
+        clipboard_write(&previous).is_ok()
+    } else {
+        true
+    };
+    Ok(json!({
+        "pasted": text.len(),
+        "clipboard_restored": clipboard_restored
+    }))
 }
 
 pub fn set_value(point: Point, value: &str) -> Result<Value> {
@@ -560,4 +572,5 @@ mod tests {
         assert_eq!(xdotool_modifier("cmd"), "super");
         assert_eq!(xdotool_modifier("ctrl"), "ctrl");
     }
+
 }

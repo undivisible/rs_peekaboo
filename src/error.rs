@@ -12,6 +12,16 @@ pub enum PeekabooError {
     InvalidCoordinates(String),
     #[error("target not found: {0}")]
     TargetNotFound(String),
+    #[error("ambiguous target: {0}")]
+    AmbiguousTarget(String),
+    #[error("invalid snapshot id: {0}")]
+    InvalidSnapshotId(String),
+    #[error("invalid image mode: {0}")]
+    InvalidImageMode(String),
+    #[error("invalid direction: {0}")]
+    InvalidDirection(String),
+    #[error("unsupported run command: {0}")]
+    UnsupportedRunCommand(String),
     #[error("command failed: {program} exited {status}: {stderr}")]
     CommandFailed {
         program: String,

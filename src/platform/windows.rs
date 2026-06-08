@@ -3,7 +3,7 @@ use crate::Result;
 use crate::models::{Bounds, Direction, ImageMode, Point, UiElement};
 use crate::platform::process;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 const INPUT_ENV_VAR: &str = "RS_PEEKABOO_INPUT";
@@ -35,12 +35,31 @@ pub fn list_screens() -> Result<Value> {
 }
 
 pub fn permissions() -> Value {
+    let accessibility = run_json(
+        r#"
+$inputObject = $args[0] | ConvertFrom-Json
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+[pscustomobject]@{ ok = ($null -ne $root) } | ConvertTo-Json -Compress
+"#,
+        &json!({}),
+    )
+    .is_ok();
+    let clipboard = run_json(CLIPBOARD_SCRIPT, &json!({ "action": "read" })).is_ok();
     json!({
-        "screen_recording": true,
-        "accessibility": true,
-        "clipboard": true,
+        "screen_recording": probe_screen_recording(),
+        "accessibility": accessibility,
+        "clipboard": clipboard,
         "platform": "windows"
     })
+}
+
+pub fn grant_permissions() -> Result<Value> {
+    Ok(json!({
+        "note": "Grant accessibility and screen recording in Windows Settings > Privacy & Security.",
+        "platform": "windows"
+    }))
 }
 
 pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {
@@ -143,8 +162,19 @@ pub fn type_text(
 }
 
 pub fn paste(text: &str) -> Result<Value> {
+    let previous = clipboard_read().ok();
     clipboard_write(text)?;
-    hotkey(&["ctrl", "v"])
+    let paste_result = hotkey(&["ctrl", "v"])?;
+    let clipboard_restored = if let Some(previous) = previous {
+        clipboard_write(&previous).is_ok()
+    } else {
+        true
+    };
+    Ok(json!({
+        "pasted": text.len(),
+        "clipboard_restored": clipboard_restored,
+        "hotkey": paste_result
+    }))
 }
 
 pub fn set_value(point: Point, value: &str) -> Result<Value> {
@@ -244,6 +274,17 @@ pub fn send_keys_for_hotkey(keys: &str) -> String {
         .collect::<String>()
 }
 
+pub fn escape_send_keys_literal(text: &str) -> String {
+    text.chars()
+        .map(|ch| match ch {
+            '+' | '^' | '%' | '~' | '(' | ')' | '{' | '}' | '[' | ']' => {
+                format!("{{{ch}}}")
+            }
+            other => other.to_string(),
+        })
+        .collect()
+}
+
 pub fn send_keys_for_key(key: &str) -> String {
     match key.to_ascii_lowercase().as_str() {
         "enter" | "return" => "{ENTER}".to_string(),
@@ -261,7 +302,7 @@ pub fn send_keys_for_key(key: &str) -> String {
         "pageup" => "{PGUP}".to_string(),
         "pagedown" => "{PGDN}".to_string(),
         f if function_key(f).is_some() => format!("{{{}}}", function_key(f).unwrap_or("")),
-        other => other.to_string(),
+        other => escape_send_keys_literal(other),
     }
 }
 
@@ -281,6 +322,29 @@ fn function_key(key: &str) -> Option<&'static str> {
         "f12" => Some("F12"),
         _ => None,
     }
+}
+
+fn screen_recording_probe_path() -> PathBuf {
+    std::env::temp_dir().join("rs_peekaboo_permission_probe.png")
+}
+
+fn screen_recording_probe_input(path: &Path) -> Value {
+    json!({
+        "path": path.to_string_lossy(),
+        "region": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1,
+        },
+    })
+}
+
+fn probe_screen_recording() -> bool {
+    let path = screen_recording_probe_path();
+    let ok = run_json(IMAGE_SCRIPT, &screen_recording_probe_input(&path)).is_ok();
+    let _ = std::fs::remove_file(path);
+    ok
 }
 
 fn run_json(script: &str, input: &Value) -> Result<Value> {
@@ -806,5 +870,23 @@ mod tests {
     fn send_keys_for_hotkey_should_build_chords() {
         assert_eq!(send_keys_for_hotkey("ctrl+shift+p"), "^+p");
         assert_eq!(send_keys_for_hotkey("alt+f4"), "%{F4}");
+    }
+
+    #[test]
+    fn escape_send_keys_literal_should_escape_metacharacters() {
+        assert_eq!(escape_send_keys_literal("+"), "{+}");
+        assert_eq!(escape_send_keys_literal("a+b"), "a{+}b");
+    }
+
+    #[test]
+    fn screen_recording_probe_input_should_capture_a_small_region() {
+        let path = screen_recording_probe_path();
+        let input = screen_recording_probe_input(&path);
+        assert!(path
+            .to_string_lossy()
+            .contains("rs_peekaboo_permission_probe.png"));
+        assert_eq!(input["region"]["width"], 1);
+        assert_eq!(input["region"]["height"], 1);
+        assert_eq!(input["path"], path.to_string_lossy());
     }
 }

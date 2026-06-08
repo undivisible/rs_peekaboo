@@ -56,15 +56,34 @@ pub fn list_screens() -> Result<Value> {
 pub fn permissions() -> Value {
     json!({
         "platform": "macos",
-        "screen_recording": process::probe(
-            "screencapture",
-            &["-x", "/tmp/rs_peekaboo_permission_probe.png"],
-        ),
+        "screen_recording": probe_screen_recording(),
         "accessibility": probe_osascript(
             "tell application \"System Events\" to get name of first process",
         ),
         "clipboard": process::probe("pbpaste", &[]),
     })
+}
+
+pub fn grant_permissions() -> Result<Value> {
+    process::run(
+        "open",
+        &["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+        None,
+    )?;
+    let _ = process::run(
+        "open",
+        &[
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        ],
+        None,
+    );
+    Ok(json!({
+        "opened": [
+            "system_settings_accessibility",
+            "system_settings_screen_recording"
+        ],
+        "note": "Grant Accessibility and Screen Recording for rs-peekaboo in the opened settings panes."
+    }))
 }
 
 pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {
@@ -203,17 +222,22 @@ pub fn paste(text: &str) -> Result<Value> {
     let previous = clipboard_read().ok();
     clipboard_write(text)?;
     hotkey(&["cmd", "v"])?;
-    if let Some(previous) = previous {
-        let _ = clipboard_write(&previous);
-    }
-    Ok(json!({ "pasted": text.len() }))
+    let clipboard_restored = if let Some(previous) = previous {
+        clipboard_write(&previous).is_ok()
+    } else {
+        true
+    };
+    Ok(json!({
+        "pasted": text.len(),
+        "clipboard_restored": clipboard_restored
+    }))
 }
 
 pub fn set_value(element: &UiElement, value: &str) -> Result<Value> {
     let script = format!(
-        "tell application \"System Events\" to tell process {} to set value of UI element {} to {}",
-        apple_string(&element.app),
-        apple_string(&element.label),
+        "tell application \"System Events\" to tell process {} to set value of {} to {}",
+        apple_string(&element_process_name(element)),
+        element_ui_reference(element),
         apple_string(value)
     );
     osascript(&script)?;
@@ -222,10 +246,10 @@ pub fn set_value(element: &UiElement, value: &str) -> Result<Value> {
 
 pub fn perform_action(element: &UiElement, action: &str) -> Result<Value> {
     let script = format!(
-        "tell application \"System Events\" to tell process {} to perform action {} of UI element {}",
-        apple_string(&element.app),
+        "tell application \"System Events\" to tell process {} to perform action {} of {}",
+        apple_string(&element_process_name(element)),
         apple_string(action),
-        apple_string(&element.label)
+        element_ui_reference(element)
     );
     osascript(&script)?;
     Ok(json!({ "target": element.id, "action": action }))
@@ -467,9 +491,68 @@ fn key_code_name(key: &str) -> &'static str {
     }
 }
 
-fn apple_string(value: &str) -> String {
+pub fn apple_string(value: &str) -> String {
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
+}
+
+pub fn element_process_name(element: &UiElement) -> String {
+    if let Some(name) = element.id.strip_prefix("app:") {
+        return name.to_string();
+    }
+    if let Some(rest) = element.id.strip_prefix("window:") {
+        if let Some((app, _)) = rest.split_once(':') {
+            return app.to_string();
+        }
+    }
+    element.app.clone()
+}
+
+pub fn element_ui_reference(element: &UiElement) -> String {
+    if let Some(rest) = element.id.strip_prefix("window:") {
+        if let Some((_app, title)) = rest.split_once(':') {
+            let element_name = element_selector_name(element);
+            return format!(
+                "UI element {} of window {}",
+                apple_string(&element_name),
+                apple_string(title)
+            );
+        }
+    }
+    format!(
+        "UI element {}",
+        apple_string(&element_selector_name(element))
+    )
+}
+
+fn element_selector_name(element: &UiElement) -> String {
+    if !element.label.is_empty() {
+        return element.label.clone();
+    }
+    if let Some(rest) = element.id.strip_prefix("window:") {
+        if let Some((_app, title)) = rest.split_once(':') {
+            return title.to_string();
+        }
+    }
+    if let Some(name) = element.id.strip_prefix("app:") {
+        return name.to_string();
+    }
+    if !is_generic_element_id(&element.id) {
+        return element.id.clone();
+    }
+    element.label.clone()
+}
+
+fn is_generic_element_id(id: &str) -> bool {
+    id.starts_with("win-") || id.is_empty()
+}
+
+const SCREEN_RECORDING_PROBE_PATH: &str = "/tmp/rs_peekaboo_permission_probe.png";
+
+fn probe_screen_recording() -> bool {
+    let ok = process::probe("screencapture", &["-x", SCREEN_RECORDING_PROBE_PATH]);
+    let _ = std::fs::remove_file(SCREEN_RECORDING_PROBE_PATH);
+    ok
 }
 
 fn osascript(script: &str) -> Result<ProcessOutput> {
@@ -497,3 +580,92 @@ fn post_mouse(event_type: CGEventType, point: &Point, button: CGMouseButton) -> 
     event.post(CGEventTapLocation::HID);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Bounds;
+
+    fn sample_window_element() -> UiElement {
+        UiElement {
+            id: "window:Finder:Desktop".to_string(),
+            role: "window".to_string(),
+            label: "Desktop".to_string(),
+            app: "Finder".to_string(),
+            window: Some("Desktop".to_string()),
+            bounds: Some(Bounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+            }),
+            state: json!({}),
+        }
+    }
+
+    #[test]
+    fn apple_string_should_escape_quotes_and_backslashes() {
+        assert_eq!(apple_string(r#"say "hi""#), r#""say \"hi\"""#);
+        assert_eq!(apple_string(r"path\to\file"), r#""path\\to\\file""#);
+    }
+
+    #[test]
+    fn parse_snapshot_line_should_parse_app_and_window_rows() {
+        let app = parse_snapshot_line("app\tSafari\ttrue").expect("app row");
+        assert_eq!(app.id, "app:Safari");
+        assert_eq!(app.role, "application");
+        assert_eq!(app.label, "Safari");
+
+        let window =
+            parse_snapshot_line("window\tSafari\tStart Page\t10\t20\t800\t600\tfalse")
+                .expect("window row");
+        assert_eq!(window.id, "window:Safari:Start Page");
+        assert_eq!(window.label, "Start Page");
+        assert_eq!(window.bounds, Some(Bounds {
+            x: 10,
+            y: 20,
+            width: 800,
+            height: 600,
+        }));
+    }
+
+    #[test]
+    fn element_process_name_should_prefer_stable_id() {
+        let element = sample_window_element();
+        assert_eq!(element_process_name(&element), "Finder");
+
+        let app = parse_snapshot_line("app\tNotes\tfalse").expect("app row");
+        assert_eq!(element_process_name(&app), "Notes");
+    }
+
+    #[test]
+    fn element_ui_reference_should_scope_windows_by_id() {
+        let element = sample_window_element();
+        assert_eq!(
+            element_ui_reference(&element),
+            r#"UI element "Desktop" of window "Desktop""#
+        );
+
+        let app = parse_snapshot_line("app\tNotes\tfalse").expect("app row");
+        assert_eq!(element_ui_reference(&app), r#"UI element "Notes""#);
+    }
+
+    #[test]
+    fn element_ui_reference_should_fall_back_to_id_when_label_missing() {
+        let element = UiElement {
+            id: "window:Mail:Inbox".to_string(),
+            role: "window".to_string(),
+            label: String::new(),
+            app: "Mail".to_string(),
+            window: Some("Inbox".to_string()),
+            bounds: None,
+            state: json!({}),
+        };
+        assert_eq!(
+            element_ui_reference(&element),
+            r#"UI element "Inbox" of window "Inbox""#
+        );
+    }
+}
+
+

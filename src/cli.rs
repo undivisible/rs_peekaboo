@@ -343,12 +343,12 @@ pub fn execute(cli: Cli) -> Result<()> {
     let result = match cli.command {
         Commands::See(args) => CommandResult::ok(peekaboo.see(
             args.app.as_deref(),
-            ImageMode::parse(&args.mode),
+            ImageMode::parse_or_err(&args.mode)?,
             args.path,
             args.retina,
         )?)?,
         Commands::Image(args) => CommandResult::ok(peekaboo.image(
-            ImageMode::parse(&args.mode),
+            ImageMode::parse_or_err(&args.mode)?,
             args.path,
             args.retina,
         )?)?,
@@ -379,7 +379,9 @@ pub fn execute(cli: Cli) -> Result<()> {
         }
         Commands::Paste(args) => CommandResult::ok(peekaboo.paste(&args.text)?)?,
         Commands::Scroll(args) => {
-            CommandResult::ok(peekaboo.scroll(Direction::parse(&args.direction), args.amount)?)?
+            CommandResult::ok(
+                peekaboo.scroll(Direction::parse_or_err(&args.direction)?, args.amount)?,
+            )?
         }
         Commands::Swipe(args) => CommandResult::ok(peekaboo.swipe(
             Target::Point(parse_point(&args.from)?),
@@ -416,7 +418,10 @@ pub fn execute(cli: Cli) -> Result<()> {
             ClipboardAction::Read => json!({ "text": peekaboo.clipboard_read()? }),
             ClipboardAction::Write(write) => peekaboo.clipboard_write(&write.text)?,
         })?,
-        Commands::Permissions(_) => CommandResult::ok(peekaboo.permissions())?,
+        Commands::Permissions(args) => CommandResult::ok(match args.action {
+            Some(PermissionAction::Grant) => peekaboo.grant_permissions()?,
+            _ => peekaboo.permissions(),
+        })?,
         Commands::Shell(args) => {
             CommandResult::ok(peekaboo.shell(&args.command, args.cwd.as_deref())?)?
         }
@@ -564,8 +569,8 @@ fn completions(shell: CompletionShell) -> Result<()> {
 fn emit(result: CommandResult, json_output: bool) -> Result<()> {
     if json_output {
         println!("{}", serde_json::to_string_pretty(&result)?);
-    } else {
-        print_human(&result.data);
+    } else if let Some(data) = &result.data {
+        print_human(data);
     }
     Ok(())
 }

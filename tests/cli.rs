@@ -48,3 +48,39 @@ fn completions_should_print_shell_script() {
         .success()
         .stdout(predicate::str::contains("_rs-peekaboo"));
 }
+
+#[test]
+fn json_should_emit_structured_error_for_invalid_image_mode() {
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
+    cmd.args(["--json", "image", "--mode", "bogus"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"ok\": false"))
+        .stdout(predicate::str::contains(
+            "\"error\": \"invalid image mode: bogus\"",
+        ));
+}
+
+#[test]
+fn json_should_emit_structured_error_for_invalid_direction() {
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
+    cmd.args(["--json", "scroll", "--direction", "sideways"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"ok\": false"))
+        .stdout(predicate::str::contains(
+            "\"error\": \"invalid direction: sideways\"",
+        ));
+}
+
+#[test]
+fn json_should_reject_invalid_snapshot_id_on_clean() {
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
+    cmd.args(["--json", "clean", "--snapshot", "../etc/passwd"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"ok\": false"))
+        .stdout(predicate::str::contains(
+            "\"error\": \"invalid snapshot id: ../etc/passwd\"",
+        ));
+}

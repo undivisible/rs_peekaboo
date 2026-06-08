@@ -238,6 +238,7 @@ pub fn type_text(
     clear: bool,
     press_return: bool,
     delay_ms: Option<u64>,
+    _app: Option<&str>,
 ) -> Result<Value> {
     require_xdotool()?;
     if clear {
@@ -277,7 +278,7 @@ pub fn paste(text: &str) -> Result<Value> {
 
 pub fn set_value(point: Point, value: &str) -> Result<Value> {
     click(point, "left", 1)?;
-    type_text(value, true, false, None)
+    type_text(value, true, false, None, None)
 }
 
 pub fn perform_action(point: Point, action: &str) -> Result<Value> {

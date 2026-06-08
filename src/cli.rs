@@ -368,6 +368,7 @@ pub fn execute(cli: Cli) -> Result<()> {
             args.clear,
             args.press_return,
             args.delay,
+            None,
         )?)?,
         Commands::Press(args) => {
             CommandResult::ok(peekaboo.press(&args.key, args.count, args.delay)?)?

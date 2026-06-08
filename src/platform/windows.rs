@@ -127,6 +127,7 @@ pub fn type_text(
     clear: bool,
     press_return: bool,
     delay_ms: Option<u64>,
+    app: Option<&str>,
 ) -> Result<Value> {
     run_json(
         KEYBOARD_SCRIPT,
@@ -136,6 +137,7 @@ pub fn type_text(
             "clear": clear,
             "return": press_return,
             "delay_ms": delay_ms.unwrap_or(0),
+            "app": app,
         }),
     )
 }
@@ -147,7 +149,7 @@ pub fn paste(text: &str) -> Result<Value> {
 
 pub fn set_value(point: Point, value: &str) -> Result<Value> {
     click(point, "left", 1)?;
-    type_text(value, true, false, None)
+    type_text(value, true, false, None, None)
 }
 
 pub fn perform_action(point: Point, action: &str) -> Result<Value> {
@@ -511,6 +513,8 @@ if ($inputObject.action -eq "move") {
 const KEYBOARD_SCRIPT: &str = r#"
 $inputObject = $args[0] | ConvertFrom-Json
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -549,10 +553,11 @@ public class NativeKeyboard {
     try { SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch {}
   }
 
-  public static void FocusCursorWindow() {
-    POINT pt;
-    if (!GetCursorPos(out pt)) return;
-    var hwnd = WindowFromPoint(pt);
+  public static IntPtr GetForegroundHwnd() {
+    return GetForegroundWindow();
+  }
+
+  public static void FocusWindow(IntPtr hwnd) {
     if (hwnd == IntPtr.Zero) return;
     var fg = GetForegroundWindow();
     if (fg == hwnd) return;
@@ -561,7 +566,11 @@ public class NativeKeyboard {
     if (fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
     SetForegroundWindow(hwnd);
     if (fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
-    Thread.Sleep(50);
+    Thread.Sleep(80);
+  }
+
+  public static void FocusForegroundWindow() {
+    FocusWindow(GetForegroundWindow());
   }
 
   static void SendKey(ushort vk, bool keyUp) {
@@ -590,31 +599,65 @@ public class NativeKeyboard {
 }
 "@
 
+function Focus-TargetApp([string]$app) {
+  if ($app) {
+    $proc = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.ProcessName -like ("*" + $app + "*") } | Sort-Object StartTime -Descending | Select-Object -First 1
+    if ($proc) {
+      [NativeKeyboard]::FocusWindow($proc.MainWindowHandle)
+      return $true
+    }
+  }
+  [NativeKeyboard]::FocusForegroundWindow()
+  return $false
+}
+
+function Set-UiText([string]$text, [bool]$clear) {
+  $hwnd = [NativeKeyboard]::GetForegroundHwnd()
+  if ($hwnd -eq [IntPtr]::Zero) { return $false }
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+  if (-not $root) { return $false }
+  $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+  $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  if (-not $edit) { return $false }
+  $value = $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+  if (-not $value) { return $false }
+  if ($clear) { $value.SetValue("") }
+  $value.SetValue($text)
+  return $true
+}
+
 function Send-KeysWait([string]$keys) {
-  [NativeKeyboard]::FocusCursorWindow()
+  [NativeKeyboard]::FocusForegroundWindow()
   [System.Windows.Forms.SendKeys]::SendWait($keys)
   Start-Sleep -Milliseconds 40
 }
 
 [NativeKeyboard]::EnsureDpiAware()
-[NativeKeyboard]::FocusCursorWindow()
+$usedUiValue = $false
+$focusedApp = Focus-TargetApp ([string]$inputObject.app)
 if ($inputObject.action -eq "type") {
-  if ($inputObject.clear) {
-    Send-KeysWait("^a")
-    Send-KeysWait("{BACKSPACE}")
-  }
   $text = [string]$inputObject.text
-  [System.Windows.Forms.Clipboard]::SetText($text)
-  Start-Sleep -Milliseconds 80
-  Send-KeysWait("^v")
-  if ($inputObject.return) { Send-KeysWait("{ENTER}") }
+  $clear = [bool]$inputObject.clear
+  if (Set-UiText $text $clear) {
+    $usedUiValue = $true
+    if ($inputObject.return) { Send-KeysWait("{ENTER}") }
+  } else {
+    if ($clear) {
+      Send-KeysWait("^a")
+      Send-KeysWait("{BACKSPACE}")
+    }
+    [System.Windows.Forms.Clipboard]::SetText($text)
+    Start-Sleep -Milliseconds 80
+    Send-KeysWait("^v")
+    if ($inputObject.return) { Send-KeysWait("{ENTER}") }
+  }
 } else {
   for ($i = 0; $i -lt [int]$inputObject.count; $i++) {
     Send-KeysWait([string]$inputObject.keys)
     if ([int]$inputObject.delay_ms -gt 0) { Start-Sleep -Milliseconds ([int]$inputObject.delay_ms) }
   }
 }
-[pscustomobject]@{ ok = $true; action = $inputObject.action; input_size = [NativeKeyboard]::InputSize } | ConvertTo-Json -Compress
+[pscustomobject]@{ ok = $true; action = $inputObject.action; input_size = [NativeKeyboard]::InputSize; focused_app = $focusedApp; ui_value = $usedUiValue } | ConvertTo-Json -Compress
 "#;
 
 const WINDOW_SCRIPT: &str = r#"
@@ -657,12 +700,53 @@ if ($inputObject.action -in @("focus", "activate", "switch")) {
 
 const APP_SCRIPT: &str = r#"
 $inputObject = $args[0] | ConvertFrom-Json
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+public class NativeFocus {
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr ProcessId);
+  [DllImport("user32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint attach, uint attachTo, bool attach);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  public static void Focus(IntPtr hwnd) {
+    if (hwnd == IntPtr.Zero) return;
+    var fg = GetForegroundWindow();
+    if (fg == hwnd) return;
+    uint fgThread = GetWindowThreadProcessId(fg, IntPtr.Zero);
+    uint curThread = GetCurrentThreadId();
+    if (fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
+    SetForegroundWindow(hwnd);
+    if (fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
+    Thread.Sleep(120);
+  }
+}
+"@
 if ($inputObject.action -eq "list") {
   Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { [pscustomobject]@{ app = $_.ProcessName; title = $_.MainWindowTitle; pid = $_.Id } } | ConvertTo-Json -Compress
   exit
 }
-if ($inputObject.action -in @("launch", "open", "switch", "activate")) {
-  Start-Process -FilePath ([string]$inputObject.app)
+$focused = $false
+$title = $null
+if ($inputObject.action -in @("launch", "open")) {
+  $proc = Start-Process -FilePath ([string]$inputObject.app) -PassThru
+  for ($i = 0; $i -lt 80; $i++) {
+    $proc.Refresh()
+    if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { break }
+    Start-Sleep -Milliseconds 100
+  }
+  if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
+    [NativeFocus]::Focus($proc.MainWindowHandle)
+    $focused = $true
+    $title = $proc.MainWindowTitle
+  }
+} elseif ($inputObject.action -in @("switch", "activate")) {
+  $proc = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.ProcessName -like ("*" + $inputObject.app + "*") } | Sort-Object StartTime -Descending | Select-Object -First 1
+  if (-not $proc) { throw "app not found" }
+  [NativeFocus]::Focus($proc.MainWindowHandle)
+  $focused = $true
+  $title = $proc.MainWindowTitle
 } else {
   $process = Get-Process | Where-Object { $_.ProcessName -like ("*" + $inputObject.app + "*") } | Select-Object -First 1
   if (-not $process) { throw "app not found" }
@@ -670,7 +754,7 @@ if ($inputObject.action -in @("launch", "open", "switch", "activate")) {
     $process.CloseMainWindow() | Out-Null
   }
 }
-[pscustomobject]@{ ok = $true; action = $inputObject.action; app = $inputObject.app } | ConvertTo-Json -Compress
+[pscustomobject]@{ ok = $true; action = $inputObject.action; app = $inputObject.app; focused = $focused; title = $title } | ConvertTo-Json -Compress
 "#;
 
 const OPEN_SCRIPT: &str = r#"

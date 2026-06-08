@@ -120,8 +120,9 @@ impl Peekaboo {
         clear: bool,
         press_return: bool,
         delay_ms: Option<u64>,
+        app: Option<&str>,
     ) -> Result<Value> {
-        backend::type_text(text, clear, press_return, delay_ms)
+        backend::type_text(text, clear, press_return, delay_ms, app)
     }
 
     pub fn press(&self, key: &str, count: u32, delay_ms: Option<u64>) -> Result<Value> {
@@ -242,7 +243,7 @@ impl Peekaboo {
                     .get("text")
                     .and_then(Value::as_str)
                     .ok_or(PeekabooError::MissingArgument("text"))?;
-                self.type_text(text, false, false, None)
+                self.type_text(text, false, false, None, None)
             }
             "click" => {
                 let coords = args

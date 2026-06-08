@@ -174,6 +174,7 @@ pub fn type_text(
     clear: bool,
     press_return: bool,
     delay_ms: Option<u64>,
+    _app: Option<&str>,
 ) -> Result<Value> {
     if clear {
         hotkey(&["cmd", "a"])?;

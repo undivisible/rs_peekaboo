@@ -16,20 +16,12 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-            ext: ""
-            archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
-            ext: ""
-            archive: tar.gz
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            ext: ""
-            archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            ext: ".exe"
-            archive: zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,35 +29,32 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-
       - run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package archive and checksum
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          BIN="rs-peekaboo${{ matrix.ext }}"
-          TAG="${GITHUB_REF_NAME}"
-          TARGET="${{ matrix.target }}"
-          DIR="rs-peekaboo-${TAG}-${TARGET}"
+          DIR="rs-peekaboo-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir -p "${DIR}"
-          cp "target/${TARGET}/release/${BIN}" "${DIR}/"
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            ARCHIVE="${DIR}.zip"
-            (cd "${DIR}" && zip -r "../${ARCHIVE}" .) > /dev/null
-          else
-            ARCHIVE="${DIR}.tar.gz"
-            tar czf "${ARCHIVE}" "${DIR}"
-          fi
-          # sha256sum compatible (python works everywhere)
-          python3 -c "
-import hashlib, sys
-path = sys.argv[1]
-h = hashlib.sha256(open(path, 'rb').read()).hexdigest()
-with open(path + '.sha256', 'w') as f:
-    f.write(h + '  ' + path + chr(10))
-" "${ARCHIVE}"
-          echo "ASSET=${ARCHIVE}" >> "${GITHUB_ENV}"
-          echo "ASSET_SHA=${ARCHIVE}.sha256" >> "${GITHUB_ENV}"
+          cp "target/${{ matrix.target }}/release/rs-peekaboo" "${DIR}/"
+          tar czf "${DIR}.tar.gz" "${DIR}"
+          openssl dgst -sha256 -r "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
+          echo "ASSET=${DIR}.tar.gz" >> "${GITHUB_ENV}"
+          echo "ASSET_SHA=${DIR}.tar.gz.sha256" >> "${GITHUB_ENV}"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $DIR = "rs-peekaboo-${{ github.ref_name }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $DIR -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/rs-peekaboo.exe" -Destination "$DIR/"
+          Compress-Archive -Path "$DIR/*" -DestinationPath "$DIR.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$DIR.zip").Hash.ToLower()
+          "$hash  $DIR.zip" | Out-File -FilePath "$DIR.zip.sha256" -Encoding ascii
+          echo "ASSET=$DIR.zip" >> $env:GITHUB_ENV
+          echo "ASSET_SHA=$DIR.zip.sha256" >> $env:GITHUB_ENV
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2

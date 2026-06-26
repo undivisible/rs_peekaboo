@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -56,7 +57,7 @@ pub struct Point {
     pub y: i64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Bounds {
     pub x: i64,
     pub y: i64,
@@ -70,6 +71,25 @@ impl Bounds {
             x: self.x + self.width / 2,
             y: self.y + self.height / 2,
         }
+    }
+
+    pub fn contains(&self, point: &Point) -> bool {
+        point.x >= self.x
+            && point.y >= self.y
+            && point.x < self.x + self.width
+            && point.y < self.y + self.height
+    }
+
+    pub fn intersection_area(&self, other: &Bounds) -> i64 {
+        let x = (self.x).max(other.x);
+        let y = (self.y).max(other.y);
+        let w = (self.x + self.width).min(other.x + other.width) - x;
+        let h = (self.y + self.height).min(other.y + other.height) - y;
+        if w <= 0 || h <= 0 { 0 } else { w * h }
+    }
+
+    pub fn overlaps(&self, other: &Bounds) -> bool {
+        self.intersection_area(other) > 0
     }
 }
 
@@ -148,6 +168,166 @@ pub struct RunStep {
     pub args: Value,
 }
 
+/// Automation mode selection. Default: Hybrid on macOS, Legacy elsewhere.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerUseMode {
+    /// Native AX tree + screenshot metadata (macOS default).
+    #[default]
+    Hybrid,
+    /// Pure native Accessibility API (macOS only).
+    Native,
+    /// Screenshot-first with external detection import hooks.
+    Vision,
+    /// AppleScript/System Events (existing behaviour).
+    Legacy,
+    /// Pure screenshot + coordinates + mouse/keyboard events.
+    Coords,
+}
+
+impl ComputerUseMode {
+    pub fn parse(value: &str) -> crate::Result<Self> {
+        match value {
+            "hybrid" => Ok(Self::Hybrid),
+            "native" => Ok(Self::Native),
+            "vision" => Ok(Self::Vision),
+            "legacy" => Ok(Self::Legacy),
+            "coords" => Ok(Self::Coords),
+            other => Err(crate::PeekabooError::InvalidMode(other.to_string())),
+        }
+    }
+}
+
+/// Metadata about which backend served a request.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackendMetadata {
+    pub backend: String,
+    pub mode: ComputerUseMode,
+    pub fallbacks_used: Vec<String>,
+}
+
+/// Rich UI node with full accessibility properties.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UiNode {
+    pub id: String,
+    pub backend: String,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subrole: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    pub app: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<Bounds>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focused: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_in_parent: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<UiNode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children_count: Option<i32>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub source: Vec<String>,
+    #[serde(default)]
+    pub state: Value,
+}
+
+impl From<&UiNode> for UiElement {
+    fn from(node: &UiNode) -> Self {
+        Self {
+            id: node.id.clone(),
+            role: node.role.clone(),
+            label: node.title.clone().unwrap_or_default(),
+            app: node.app.clone(),
+            window: node.window.clone(),
+            bounds: node.bounds,
+            state: node.state.clone(),
+        }
+    }
+}
+
+impl From<UiNode> for UiElement {
+    fn from(node: UiNode) -> Self {
+        Self::from(&node)
+    }
+}
+
+impl From<UiElement> for UiNode {
+    fn from(el: UiElement) -> Self {
+        Self {
+            id: el.id,
+            backend: "legacy".into(),
+            role: el.role,
+            subrole: None,
+            title: if el.label.is_empty() { None } else { Some(el.label.clone()) },
+            label: Some(el.label),
+            description: None,
+            value: None,
+            identifier: None,
+            app: el.app,
+            pid: None,
+            window: el.window,
+            bounds: el.bounds,
+            enabled: None,
+            focused: None,
+            selected: None,
+            depth: None,
+            index_in_parent: None,
+            parent_id: None,
+            children: None,
+            children_count: None,
+            actions: Vec::new(),
+            attributes: HashMap::new(),
+            confidence: None,
+            source: vec!["legacy".into()],
+            state: el.state,
+        }
+    }
+}
+
+/// Imported detection data from an external vision model.
+#[derive(Clone, Debug, Deserialize)]
+pub struct VisionDetections {
+    pub image: Option<String>,
+    pub elements: Vec<VisionElement>,
+}
+
+/// Single element from a vision model detection pass.
+#[derive(Clone, Debug, Deserialize)]
+pub struct VisionElement {
+    pub role: Option<String>,
+    pub label: Option<String>,
+    pub bounds: Option<Bounds>,
+    pub confidence: Option<f64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +371,62 @@ mod tests {
         assert_eq!(json["ok"], false);
         assert_eq!(json["error"], "invalid image mode: bogus");
         assert!(json.get("data").is_none());
+    }
+
+    #[test]
+    fn computer_use_mode_parse_should_accept_valid_modes() {
+        assert_eq!(ComputerUseMode::parse("hybrid").unwrap(), ComputerUseMode::Hybrid);
+        assert_eq!(ComputerUseMode::parse("native").unwrap(), ComputerUseMode::Native);
+        assert_eq!(ComputerUseMode::parse("vision").unwrap(), ComputerUseMode::Vision);
+        assert_eq!(ComputerUseMode::parse("legacy").unwrap(), ComputerUseMode::Legacy);
+        assert_eq!(ComputerUseMode::parse("coords").unwrap(), ComputerUseMode::Coords);
+    }
+
+    #[test]
+    fn computer_use_mode_default_is_hybrid() {
+        assert_eq!(ComputerUseMode::default(), ComputerUseMode::Hybrid);
+    }
+
+    #[test]
+    fn bounds_contains_should_check_point_inside() {
+        let b = Bounds { x: 10, y: 20, width: 100, height: 50 };
+        assert!(b.contains(&Point { x: 50, y: 40 }));
+        assert!(!b.contains(&Point { x: 5, y: 40 }));
+        assert!(!b.contains(&Point { x: 50, y: 100 }));
+    }
+
+    #[test]
+    fn bounds_overlaps_should_detect_intersection() {
+        let a = Bounds { x: 0, y: 0, width: 100, height: 100 };
+        let b = Bounds { x: 50, y: 50, width: 100, height: 100 };
+        let c = Bounds { x: 200, y: 200, width: 50, height: 50 };
+        assert!(a.overlaps(&b));
+        assert!(b.overlaps(&a));
+        assert!(!a.overlaps(&c));
+    }
+
+    #[test]
+    fn bounds_intersection_area_should_be_zero_when_disjoint() {
+        let a = Bounds { x: 0, y: 0, width: 10, height: 10 };
+        let b = Bounds { x: 100, y: 100, width: 10, height: 10 };
+        assert_eq!(a.intersection_area(&b), 0);
+    }
+
+    #[test]
+    fn ui_node_from_ui_element_maps_fields() {
+        let el = UiElement {
+            id: "test:id".into(),
+            role: "button".into(),
+            label: "Click me".into(),
+            app: "Test".into(),
+            window: Some("Window".into()),
+            bounds: Some(Bounds { x: 0, y: 0, width: 10, height: 10 }),
+            state: serde_json::json!({}),
+        };
+        let node = UiNode::from(el);
+        assert_eq!(node.backend, "legacy");
+        assert_eq!(node.source, vec!["legacy"]);
+        assert_eq!(node.title, Some("Click me".into()));
+        assert_eq!(node.role, "button");
     }
 }

@@ -2,17 +2,79 @@ use crate::cache;
 use crate::error::{PeekabooError, Result};
 use crate::models::*;
 use crate::platform::{backend, process};
+use crate::selector::Selector;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tempfile::Builder;
 
-#[derive(Clone, Debug, Default)]
-pub struct Peekaboo;
+/// Configuration for Peekaboo automation engine.
+#[derive(Clone, Debug)]
+pub struct PeekabooConfig {
+    pub mode: ComputerUseMode,
+}
+
+impl Default for PeekabooConfig {
+    fn default() -> Self {
+        Self {
+            #[cfg(target_os = "macos")]
+            mode: ComputerUseMode::Hybrid,
+            #[cfg(not(target_os = "macos"))]
+            mode: ComputerUseMode::Legacy,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Peekaboo {
+    pub config: PeekabooConfig,
+}
 
 impl Peekaboo {
     pub fn new() -> Self {
-        Self
+        Self::with_config(PeekabooConfig::default())
+    }
+
+    pub fn with_config(config: PeekabooConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn resolve_backend(&self) -> &'static str {
+        match self.config.mode {
+            ComputerUseMode::Native => "native",
+            ComputerUseMode::Hybrid => "hybrid",
+            ComputerUseMode::Vision => "vision",
+            ComputerUseMode::Legacy => "legacy",
+            ComputerUseMode::Coords => "coords",
+        }
+    }
+
+    pub fn backend_metadata(&self, fallbacks: Vec<String>) -> BackendMetadata {
+        BackendMetadata {
+            backend: self.resolve_backend().to_string(),
+            mode: self.config.mode,
+            fallbacks_used: fallbacks,
+        }
+    }
+
+    pub fn resolve_selector(
+        &self,
+        query: &str,
+        snapshot_id: Option<&str>,
+    ) -> Result<UiNode> {
+        let selector = Selector::parse(query)?;
+        let snapshot = if let Some(sid) = snapshot_id {
+            cache::load_snapshot(sid)?
+        } else {
+            Snapshot {
+                snapshot_id: "live".to_string(),
+                elements: self.ui_elements(None)?,
+            }
+        };
+        let nodes: Vec<UiNode> = snapshot.elements.into_iter().map(UiNode::from).collect();
+        selector.first_match(&nodes).ok_or_else(|| {
+            PeekabooError::TargetNotFound(query.to_string())
+        })
     }
 
     pub fn image(
@@ -116,12 +178,12 @@ impl Peekaboo {
     }
 
     pub fn click(&self, target: Target, button: &str, count: u32) -> Result<Value> {
-        let point = self.resolve_target(target)?;
+        let point = self.resolve_target_point(target)?;
         backend::click(point, button, count)
     }
 
     pub fn move_cursor(&self, target: Target) -> Result<Value> {
-        let point = self.resolve_target(target)?;
+        let point = self.resolve_target_point(target)?;
         backend::move_cursor(point)
     }
 
@@ -153,8 +215,8 @@ impl Peekaboo {
     }
 
     pub fn drag(&self, from: Target, to: Target, duration_ms: u64) -> Result<Value> {
-        let from = self.resolve_target(from)?;
-        let to = self.resolve_target(to)?;
+        let from = self.resolve_target_point(from)?;
+        let to = self.resolve_target_point(to)?;
         backend::drag(from, to, duration_ms)
     }
 
@@ -163,29 +225,16 @@ impl Peekaboo {
     }
 
     pub fn set_value(&self, target: Target, value: &str) -> Result<Value> {
-        #[cfg(target_os = "macos")]
-        {
-            let element = self.resolve_element(target)?;
-            backend::set_value(&element, value)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let point = self.resolve_target(target)?;
-            backend::set_value(point, value)
-        }
+        let element = self.resolve_element(target)?;
+        // convert UiNode to UiElement for backend compat
+        let el = UiElement::from(&element);
+        backend::set_value(&el, value)
     }
 
     pub fn perform_action(&self, target: Target, action: &str) -> Result<Value> {
-        #[cfg(target_os = "macos")]
-        {
-            let element = self.resolve_element(target)?;
-            backend::perform_action(&element, action)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let point = self.resolve_target(target)?;
-            backend::perform_action(point, action)
-        }
+        let element = self.resolve_element(target)?;
+        let el = UiElement::from(&element);
+        backend::perform_action(&el, action)
     }
 
     pub fn app(&self, action: &str, name: Option<&str>) -> Result<Value> {
@@ -361,37 +410,30 @@ impl Peekaboo {
         }
     }
 
-    fn resolve_target(&self, target: Target) -> Result<Point> {
+    fn resolve_target_point(&self, target: Target) -> Result<Point> {
         match target {
             Target::Point(point) => Ok(point),
             Target::Element(element) => {
-                element.bounds.map(|bounds| bounds.center()).ok_or_else(|| {
-                    PeekabooError::TargetNotFound(format!("{} has no bounds", element.id))
+                let node: UiNode = element;
+                node.bounds.map(|b| b.center()).ok_or_else(|| {
+                    PeekabooError::TargetNotFound(format!("{} has no bounds", node.id))
                 })
             }
             Target::Query { query, snapshot } => {
-                let element = self.resolve_element(Target::Query { query, snapshot })?;
-                element.bounds.map(|bounds| bounds.center()).ok_or_else(|| {
-                    PeekabooError::TargetNotFound(format!("{} has no bounds", element.id))
+                let node = self.resolve_selector(&query, snapshot.as_deref())?;
+                node.bounds.map(|b| b.center()).ok_or_else(|| {
+                    PeekabooError::TargetNotFound(format!("{} has no bounds", node.id))
                 })
             }
         }
     }
 
-    fn resolve_element(&self, target: Target) -> Result<UiElement> {
+    fn resolve_element(&self, target: Target) -> Result<UiNode> {
         match target {
             Target::Element(element) => Ok(element),
             Target::Point(_) => Err(PeekabooError::MissingArgument("element target")),
             Target::Query { query, snapshot } => {
-                let snapshot = if let Some(snapshot) = snapshot {
-                    cache::load_snapshot(&snapshot)?
-                } else {
-                    Snapshot {
-                        snapshot_id: "live".to_string(),
-                        elements: self.ui_elements(None)?,
-                    }
-                };
-                resolve_query(&snapshot.elements, &query)
+                self.resolve_selector(&query, snapshot.as_deref())
             }
         }
     }
@@ -404,7 +446,7 @@ pub enum Target {
         query: String,
         snapshot: Option<String>,
     },
-    Element(UiElement),
+    Element(UiNode),
 }
 
 pub fn parse_point(value: &str) -> Result<Point> {

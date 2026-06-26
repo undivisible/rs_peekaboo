@@ -20,6 +20,8 @@ pub enum PeekabooError {
     InvalidImageMode(String),
     #[error("invalid direction: {0}")]
     InvalidDirection(String),
+    #[error("invalid mode: {0}, expected hybrid|native|vision|legacy|coords")]
+    InvalidMode(String),
     #[error("unsupported run command: {0}")]
     UnsupportedRunCommand(String),
     #[error("command failed: {program} exited {status}: {stderr}")]

@@ -882,9 +882,10 @@ mod tests {
     fn screen_recording_probe_input_should_capture_a_small_region() {
         let path = screen_recording_probe_path();
         let input = screen_recording_probe_input(&path);
-        assert!(path
-            .to_string_lossy()
-            .contains("rs_peekaboo_permission_probe.png"));
+        assert!(
+            path.to_string_lossy()
+                .contains("rs_peekaboo_permission_probe.png")
+        );
         assert_eq!(input["region"]["width"], 1);
         assert_eq!(input["region"]["height"], 1);
         assert_eq!(input["path"], path.to_string_lossy());

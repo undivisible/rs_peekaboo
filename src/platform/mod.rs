@@ -5,9 +5,9 @@ pub mod macos;
 #[cfg(target_os = "macos")]
 pub mod macos_ax;
 #[cfg(target_os = "macos")]
-pub mod macos_legacy;
-#[cfg(target_os = "macos")]
 pub mod macos_cg;
+#[cfg(target_os = "macos")]
+pub mod macos_legacy;
 #[cfg(target_os = "macos")]
 pub mod macos_permissions;
 #[cfg(target_os = "macos")]

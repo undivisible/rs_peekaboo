@@ -1,6 +1,6 @@
 use clap::Parser;
-use rs_peekaboo::cli::{Cli, execute};
 use rs_peekaboo::CommandResult;
+use rs_peekaboo::cli::{Cli, execute};
 
 fn main() {
     let cli = Cli::parse();

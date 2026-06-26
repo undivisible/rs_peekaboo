@@ -2,9 +2,9 @@
 //! Routes calls to the selected backend based on `ComputerUseMode`.
 //! Default mode is Hybrid (AX first, fallback to CG/legacy).
 
+use crate::Result;
 use crate::models::{Bounds, ComputerUseMode, Direction, ImageMode, Point, UiElement, UiNode};
 use crate::platform::{macos_ax, macos_cg, macos_legacy, macos_permissions};
-use crate::Result;
 use serde_json::Value;
 use std::path::Path;
 
@@ -151,12 +151,7 @@ pub fn window(
     macos_legacy::window(action, app, title, bounds)
 }
 
-pub fn menu(
-    action: &str,
-    app: &str,
-    menu: Option<&str>,
-    item: Option<&str>,
-) -> Result<Value> {
+pub fn menu(action: &str, app: &str, menu: Option<&str>, item: Option<&str>) -> Result<Value> {
     macos_legacy::menu(action, app, menu, item)
 }
 

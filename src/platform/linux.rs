@@ -572,5 +572,4 @@ mod tests {
         assert_eq!(xdotool_modifier("cmd"), "super");
         assert_eq!(xdotool_modifier("ctrl"), "ctrl");
     }
-
 }

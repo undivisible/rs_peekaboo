@@ -286,7 +286,11 @@ impl From<UiElement> for UiNode {
             backend: "legacy".into(),
             role: el.role,
             subrole: None,
-            title: if el.label.is_empty() { None } else { Some(el.label.clone()) },
+            title: if el.label.is_empty() {
+                None
+            } else {
+                Some(el.label.clone())
+            },
             label: Some(el.label),
             description: None,
             value: None,
@@ -335,8 +339,14 @@ mod tests {
 
     #[test]
     fn image_mode_parse_or_err_should_accept_known_modes() {
-        assert_eq!(ImageMode::parse_or_err("screen").unwrap(), ImageMode::Screen);
-        assert_eq!(ImageMode::parse_or_err("window").unwrap(), ImageMode::Window);
+        assert_eq!(
+            ImageMode::parse_or_err("screen").unwrap(),
+            ImageMode::Screen
+        );
+        assert_eq!(
+            ImageMode::parse_or_err("window").unwrap(),
+            ImageMode::Window
+        );
         assert_eq!(ImageMode::parse_or_err("menu").unwrap(), ImageMode::Menu);
         assert_eq!(ImageMode::parse_or_err("menubar").unwrap(), ImageMode::Menu);
     }
@@ -375,11 +385,26 @@ mod tests {
 
     #[test]
     fn computer_use_mode_parse_should_accept_valid_modes() {
-        assert_eq!(ComputerUseMode::parse("hybrid").unwrap(), ComputerUseMode::Hybrid);
-        assert_eq!(ComputerUseMode::parse("native").unwrap(), ComputerUseMode::Native);
-        assert_eq!(ComputerUseMode::parse("vision").unwrap(), ComputerUseMode::Vision);
-        assert_eq!(ComputerUseMode::parse("legacy").unwrap(), ComputerUseMode::Legacy);
-        assert_eq!(ComputerUseMode::parse("coords").unwrap(), ComputerUseMode::Coords);
+        assert_eq!(
+            ComputerUseMode::parse("hybrid").unwrap(),
+            ComputerUseMode::Hybrid
+        );
+        assert_eq!(
+            ComputerUseMode::parse("native").unwrap(),
+            ComputerUseMode::Native
+        );
+        assert_eq!(
+            ComputerUseMode::parse("vision").unwrap(),
+            ComputerUseMode::Vision
+        );
+        assert_eq!(
+            ComputerUseMode::parse("legacy").unwrap(),
+            ComputerUseMode::Legacy
+        );
+        assert_eq!(
+            ComputerUseMode::parse("coords").unwrap(),
+            ComputerUseMode::Coords
+        );
     }
 
     #[test]
@@ -389,7 +414,12 @@ mod tests {
 
     #[test]
     fn bounds_contains_should_check_point_inside() {
-        let b = Bounds { x: 10, y: 20, width: 100, height: 50 };
+        let b = Bounds {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
         assert!(b.contains(&Point { x: 50, y: 40 }));
         assert!(!b.contains(&Point { x: 5, y: 40 }));
         assert!(!b.contains(&Point { x: 50, y: 100 }));
@@ -397,9 +427,24 @@ mod tests {
 
     #[test]
     fn bounds_overlaps_should_detect_intersection() {
-        let a = Bounds { x: 0, y: 0, width: 100, height: 100 };
-        let b = Bounds { x: 50, y: 50, width: 100, height: 100 };
-        let c = Bounds { x: 200, y: 200, width: 50, height: 50 };
+        let a = Bounds {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+        let b = Bounds {
+            x: 50,
+            y: 50,
+            width: 100,
+            height: 100,
+        };
+        let c = Bounds {
+            x: 200,
+            y: 200,
+            width: 50,
+            height: 50,
+        };
         assert!(a.overlaps(&b));
         assert!(b.overlaps(&a));
         assert!(!a.overlaps(&c));
@@ -407,8 +452,18 @@ mod tests {
 
     #[test]
     fn bounds_intersection_area_should_be_zero_when_disjoint() {
-        let a = Bounds { x: 0, y: 0, width: 10, height: 10 };
-        let b = Bounds { x: 100, y: 100, width: 10, height: 10 };
+        let a = Bounds {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        };
+        let b = Bounds {
+            x: 100,
+            y: 100,
+            width: 10,
+            height: 10,
+        };
         assert_eq!(a.intersection_area(&b), 0);
     }
 
@@ -420,7 +475,12 @@ mod tests {
             label: "Click me".into(),
             app: "Test".into(),
             window: Some("Window".into()),
-            bounds: Some(Bounds { x: 0, y: 0, width: 10, height: 10 }),
+            bounds: Some(Bounds {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            }),
             state: serde_json::json!({}),
         };
         let node = UiNode::from(el);

@@ -1,8 +1,8 @@
-use crate::{PeekabooError, Result};
 use crate::models::UiElement;
-use serde_json::{Value, json};
 use crate::models::{Bounds, Direction, Point};
 use crate::platform::process::{self, ProcessOutput};
+use crate::{PeekabooError, Result};
+use serde_json::{Value, json};
 use std::time::Duration;
 
 // ── legacy (osascript) backend ──────────────────────────────────────────
@@ -18,9 +18,7 @@ pub fn ui_elements(app_filter: Option<&str>) -> Result<Vec<UiElement>> {
 
 pub fn list_screens() -> Result<Value> {
     let output = process::run("system_profiler", &["SPDisplaysDataType", "-json"], None)?;
-    Ok(serde_json::from_str(&output.stdout).unwrap_or_else(|_| {
-        json!({ "raw": output.stdout })
-    }))
+    Ok(serde_json::from_str(&output.stdout).unwrap_or_else(|_| json!({ "raw": output.stdout })))
 }
 
 pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {
@@ -47,9 +45,11 @@ mouse down at {{{}, {}}}
 delay {}
 mouse up at {{{}, {}}}
 end tell"#,
-        from.x, from.y,
+        from.x,
+        from.y,
         duration_ms as f64 / 1000.0,
-        to.x, to.y
+        to.x,
+        to.y
     );
     osascript(&script)?;
     Ok(json!({ "from": from, "to": to, "duration_ms": duration_ms }))
@@ -76,8 +76,12 @@ pub fn press(key: &str, count: u32, delay_ms: Option<u64>) -> Result<Value> {
     }
     let count = count.max(1);
     for index in 0..count {
-        osascript(&format!("tell application \"System Events\" to key code {key}"))?;
-        if index + 1 < count && let Some(delay_ms) = delay_ms {
+        osascript(&format!(
+            "tell application \"System Events\" to key code {key}"
+        ))?;
+        if index + 1 < count
+            && let Some(delay_ms) = delay_ms
+        {
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
     }
@@ -99,7 +103,10 @@ pub fn hotkey(keys: &[&str]) -> Result<Value> {
         })
         .collect::<Vec<_>>();
     let script = if modifiers.is_empty() {
-        format!("tell application \"System Events\" to keystroke {}", apple_string(key))
+        format!(
+            "tell application \"System Events\" to keystroke {}",
+            apple_string(key)
+        )
     } else {
         format!(
             "tell application \"System Events\" to keystroke {} using {{{}}}",
@@ -177,7 +184,9 @@ pub fn perform_action(element: &UiElement, action: &str) -> Result<Value> {
 
 pub fn list_apps() -> Result<Value> {
     let output = process::run("ps", &["ax", "-o", "pid=,comm="], None)?;
-    let apps = output.stdout.lines()
+    let apps = output
+        .stdout
+        .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
             let (pid, command) = trimmed.split_once(' ')?;
@@ -225,7 +234,9 @@ pub fn app(action: &str, name: Option<&str>) -> Result<Value> {
 
 pub fn open(path_or_url: &str, app: Option<&str>, no_focus: bool) -> Result<Value> {
     let mut args = Vec::new();
-    if no_focus { args.push("-g".to_string()); }
+    if no_focus {
+        args.push("-g".to_string());
+    }
     if let Some(app) = app {
         args.push("-a".to_string());
         args.push(app.to_string());
@@ -236,17 +247,28 @@ pub fn open(path_or_url: &str, app: Option<&str>, no_focus: bool) -> Result<Valu
     Ok(json!({ "opened": path_or_url, "app": app, "no_focus": no_focus }))
 }
 
-pub fn window(action: &str, app: Option<&str>, _title: Option<&str>, bounds: Option<Bounds>) -> Result<Value> {
+pub fn window(
+    action: &str,
+    app: Option<&str>,
+    _title: Option<&str>,
+    bounds: Option<Bounds>,
+) -> Result<Value> {
     if action == "list" {
         return Ok(json!(ui_elements(None)?));
     }
     let app = app.ok_or(PeekabooError::MissingArgument("app"))?;
     match action {
         "focus" => {
-            osascript(&format!("tell application {} to activate", apple_string(app)))?;
+            osascript(&format!(
+                "tell application {} to activate",
+                apple_string(app)
+            ))?;
         }
         "close" => {
-            osascript(&format!("tell application {} to close front window", apple_string(app)))?;
+            osascript(&format!(
+                "tell application {} to close front window",
+                apple_string(app)
+            ))?;
         }
         "minimize" => {
             osascript(&format!(
@@ -258,25 +280,33 @@ pub fn window(action: &str, app: Option<&str>, _title: Option<&str>, bounds: Opt
             let bounds = bounds.ok_or(PeekabooError::MissingArgument("bounds"))?;
             osascript(&format!(
                 "tell application \"System Events\" to tell process {} to set position of front window to {{{}, {}}}",
-                apple_string(app), bounds.x, bounds.y
+                apple_string(app),
+                bounds.x,
+                bounds.y
             ))?;
         }
         "resize" => {
             let bounds = bounds.ok_or(PeekabooError::MissingArgument("bounds"))?;
             osascript(&format!(
                 "tell application \"System Events\" to tell process {} to set size of front window to {{{}, {}}}",
-                apple_string(app), bounds.width, bounds.height
+                apple_string(app),
+                bounds.width,
+                bounds.height
             ))?;
         }
         "set-bounds" => {
             let bounds = bounds.ok_or(PeekabooError::MissingArgument("bounds"))?;
             osascript(&format!(
                 "tell application \"System Events\" to tell process {} to set position of front window to {{{}, {}}}",
-                apple_string(app), bounds.x, bounds.y
+                apple_string(app),
+                bounds.x,
+                bounds.y
             ))?;
             osascript(&format!(
                 "tell application \"System Events\" to tell process {} to set size of front window to {{{}, {}}}",
-                apple_string(app), bounds.width, bounds.height
+                apple_string(app),
+                bounds.width,
+                bounds.height
             ))?;
         }
         _ => return Err(PeekabooError::MissingArgument("action")),
@@ -298,7 +328,10 @@ pub fn menu(action: &str, app: &str, menu: Option<&str>, item: Option<&str>) -> 
             let item = item.ok_or(PeekabooError::MissingArgument("item"))?;
             let script = format!(
                 "tell application \"System Events\" to tell process {} to click menu item {} of menu {} of menu bar item {} of menu bar 1",
-                apple_string(app), apple_string(item), apple_string(menu), apple_string(menu)
+                apple_string(app),
+                apple_string(item),
+                apple_string(menu),
+                apple_string(menu)
             );
             osascript(&script)?;
             Ok(json!({ "app": app, "menu": menu, "item": item }))
@@ -406,10 +439,17 @@ pub fn element_ui_reference(element: &UiElement) -> String {
     if let Some(rest) = element.id.strip_prefix("window:") {
         if let Some((_app, title)) = rest.split_once(':') {
             let element_name = element_selector_name(element);
-            return format!("UI element {} of window {}", apple_string(&element_name), apple_string(title));
+            return format!(
+                "UI element {} of window {}",
+                apple_string(&element_name),
+                apple_string(title)
+            );
         }
     }
-    format!("UI element {}", apple_string(&element_selector_name(element)))
+    format!(
+        "UI element {}",
+        apple_string(&element_selector_name(element))
+    )
 }
 
 fn element_selector_name(element: &UiElement) -> String {
@@ -450,7 +490,12 @@ mod tests {
             label: "Desktop".to_string(),
             app: "Finder".to_string(),
             window: Some("Desktop".to_string()),
-            bounds: Some(Bounds { x: 0, y: 0, width: 100, height: 100 }),
+            bounds: Some(Bounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+            }),
             state: json!({}),
         }
     }
@@ -468,10 +513,19 @@ mod tests {
         assert_eq!(app.role, "application");
         assert_eq!(app.label, "Safari");
 
-        let window = parse_snapshot_line("window\tSafari\tStart Page\t10\t20\t800\t600\tfalse").expect("window row");
+        let window = parse_snapshot_line("window\tSafari\tStart Page\t10\t20\t800\t600\tfalse")
+            .expect("window row");
         assert_eq!(window.id, "window:Safari:Start Page");
         assert_eq!(window.label, "Start Page");
-        assert_eq!(window.bounds, Some(Bounds { x: 10, y: 20, width: 800, height: 600 }));
+        assert_eq!(
+            window.bounds,
+            Some(Bounds {
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 600
+            })
+        );
     }
 
     #[test]
@@ -485,7 +539,10 @@ mod tests {
     #[test]
     fn element_ui_reference_should_scope_windows_by_id() {
         let element = sample_window_element();
-        assert_eq!(element_ui_reference(&element), r#"UI element "Desktop" of window "Desktop""#);
+        assert_eq!(
+            element_ui_reference(&element),
+            r#"UI element "Desktop" of window "Desktop""#
+        );
         let app = parse_snapshot_line("app\tNotes\tfalse").expect("app row");
         assert_eq!(element_ui_reference(&app), r#"UI element "Notes""#);
     }
@@ -501,6 +558,9 @@ mod tests {
             bounds: None,
             state: json!({}),
         };
-        assert_eq!(element_ui_reference(&element), r#"UI element "Inbox" of window "Inbox""#);
+        assert_eq!(
+            element_ui_reference(&element),
+            r#"UI element "Inbox" of window "Inbox""#
+        );
     }
 }

@@ -39,9 +39,9 @@ fn snapshot_path(id: &str) -> Result<PathBuf> {
 fn ensure_within_dir(dir: &Path, path: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
     let dir = fs::canonicalize(dir)?;
-    let parent = path.parent().ok_or_else(|| {
-        PeekabooError::InvalidSnapshotId(path.to_string_lossy().into_owned())
-    })?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| PeekabooError::InvalidSnapshotId(path.to_string_lossy().into_owned()))?;
     if parent != dir {
         return Err(PeekabooError::InvalidSnapshotId(
             path.to_string_lossy().into_owned(),

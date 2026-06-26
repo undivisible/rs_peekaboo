@@ -495,6 +495,7 @@ fn run_target(args: &Value) -> Result<Target> {
     })
 }
 
+#[allow(dead_code)]
 fn resolve_query(elements: &[UiElement], query: &str) -> Result<UiElement> {
     if let Some(element) = elements.iter().find(|element| element.id == query) {
         return Ok(element.clone());

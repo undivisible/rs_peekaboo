@@ -1,8 +1,8 @@
 use crate::automation::{Target, parse_point, split_keys};
 use crate::cache;
 use crate::{
-    Bounds, CommandResult, ComputerUseMode, Direction, ImageMode, Peekaboo, PeekabooConfig,
-    Result, UiNode, VisionDetections,
+    Bounds, CommandResult, ComputerUseMode, Direction, ImageMode, Peekaboo, PeekabooConfig, Result,
+    UiNode, VisionDetections,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
@@ -387,11 +387,14 @@ pub fn execute(cli: Cli) -> Result<()> {
             )?;
             if args.tree {
                 CommandResult::ok(build_element_tree(
-                    &snapshot.elements.into_iter().map(UiNode::from).collect::<Vec<_>>(),
+                    &snapshot
+                        .elements
+                        .into_iter()
+                        .map(UiNode::from)
+                        .collect::<Vec<_>>(),
                 ))?
             } else if args.focused {
-                let nodes: Vec<UiNode> =
-                    snapshot.elements.into_iter().map(UiNode::from).collect();
+                let nodes: Vec<UiNode> = snapshot.elements.into_iter().map(UiNode::from).collect();
                 let focused: Vec<&UiNode> =
                     nodes.iter().filter(|n| n.focused == Some(true)).collect();
                 CommandResult::ok(json!({
@@ -400,11 +403,10 @@ pub fn execute(cli: Cli) -> Result<()> {
                 }))?
             } else if let Some(ref at) = args.at {
                 let point = parse_point(at)?;
-                let nodes: Vec<UiNode> =
-                    snapshot.elements.into_iter().map(UiNode::from).collect();
+                let nodes: Vec<UiNode> = snapshot.elements.into_iter().map(UiNode::from).collect();
                 let at_elem: Vec<&UiNode> = nodes
                     .iter()
-                    .filter(|n| n.bounds.map_or(false, |b| b.contains(&point)))
+                    .filter(|n| n.bounds.is_some_and(|b| b.contains(&point)))
                     .collect();
                 CommandResult::ok(json!({
                     "snapshot_id": snapshot.snapshot_id,
@@ -448,11 +450,9 @@ pub fn execute(cli: Cli) -> Result<()> {
             CommandResult::ok(peekaboo.hotkey(&keys)?)?
         }
         Commands::Paste(args) => CommandResult::ok(peekaboo.paste(&args.text)?)?,
-        Commands::Scroll(args) => {
-            CommandResult::ok(
-                peekaboo.scroll(Direction::parse_or_err(&args.direction)?, args.amount)?,
-            )?
-        }
+        Commands::Scroll(args) => CommandResult::ok(
+            peekaboo.scroll(Direction::parse_or_err(&args.direction)?, args.amount)?,
+        )?,
         Commands::Swipe(args) => CommandResult::ok(peekaboo.swipe(
             Target::Point(parse_point(&args.from)?),
             Target::Point(parse_point(&args.to)?),
@@ -551,11 +551,7 @@ pub fn execute(cli: Cli) -> Result<()> {
                 map.insert("source".into(), json!("import"));
             }
             if let Some(ref screenshot_path) = args.screenshot {
-                peekaboo.image(
-                    ImageMode::Screen,
-                    Some(screenshot_path.clone()),
-                    false,
-                )?;
+                peekaboo.image(ImageMode::Screen, Some(screenshot_path.clone()), false)?;
                 map.insert(
                     "screenshot".into(),
                     json!(screenshot_path.to_string_lossy().to_string()),

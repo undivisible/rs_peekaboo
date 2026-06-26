@@ -30,9 +30,15 @@ pub struct Peekaboo {
     pub config: PeekabooConfig,
 }
 
+impl Default for Peekaboo {
+    fn default() -> Self {
+        Self::with_config(PeekabooConfig::default())
+    }
+}
+
 impl Peekaboo {
     pub fn new() -> Self {
-        Self::with_config(PeekabooConfig::default())
+        Self::default()
     }
 
     pub fn with_config(config: PeekabooConfig) -> Self {
@@ -57,11 +63,7 @@ impl Peekaboo {
         }
     }
 
-    pub fn resolve_selector(
-        &self,
-        query: &str,
-        snapshot_id: Option<&str>,
-    ) -> Result<UiNode> {
+    pub fn resolve_selector(&self, query: &str, snapshot_id: Option<&str>) -> Result<UiNode> {
         let selector = Selector::parse(query)?;
         let snapshot = if let Some(sid) = snapshot_id {
             cache::load_snapshot(sid)?
@@ -72,9 +74,9 @@ impl Peekaboo {
             }
         };
         let nodes: Vec<UiNode> = snapshot.elements.into_iter().map(UiNode::from).collect();
-        selector.first_match(&nodes).ok_or_else(|| {
-            PeekabooError::TargetNotFound(query.to_string())
-        })
+        selector
+            .first_match(&nodes)
+            .ok_or_else(|| PeekabooError::TargetNotFound(query.to_string()))
     }
 
     pub fn image(
@@ -334,7 +336,10 @@ impl Peekaboo {
             "drag" | "swipe" => {
                 let from = required_str(&args, "from")?;
                 let to = required_str(&args, "to")?;
-                let duration_ms = args.get("duration_ms").and_then(Value::as_u64).unwrap_or(250);
+                let duration_ms = args
+                    .get("duration_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(250);
                 self.drag(
                     Target::Point(parse_point(from)?),
                     Target::Point(parse_point(to)?),
@@ -381,7 +386,9 @@ impl Peekaboo {
             "open" => self.open(
                 required_str(&args, "target")?,
                 args.get("app").and_then(Value::as_str),
-                args.get("no_focus").and_then(Value::as_bool).unwrap_or(false),
+                args.get("no_focus")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             ),
             "menu" => run_menu(self, &args),
             "clipboard" => run_clipboard(self, &args),
@@ -399,7 +406,11 @@ impl Peekaboo {
                 "apps" => self.list_apps()?,
                 "windows" => self.list_windows()?,
                 "screens" => self.list_screens()?,
-                kind => return Err(PeekabooError::UnsupportedRunCommand(format!("list: {kind}"))),
+                kind => {
+                    return Err(PeekabooError::UnsupportedRunCommand(format!(
+                        "list: {kind}"
+                    )));
+                }
             }),
             "shell" => {
                 let command = required_str(&args, "command")?;
@@ -432,14 +443,13 @@ impl Peekaboo {
         match target {
             Target::Element(element) => Ok(element),
             Target::Point(_) => Err(PeekabooError::MissingArgument("element target")),
-            Target::Query { query, snapshot } => {
-                self.resolve_selector(&query, snapshot.as_deref())
-            }
+            Target::Query { query, snapshot } => self.resolve_selector(&query, snapshot.as_deref()),
         }
     }
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Target {
     Point(Point),
     Query {
@@ -546,13 +556,9 @@ pub fn validate_output_path(path: &Path) -> Result<PathBuf> {
     if (text == "~" || text.starts_with("~/"))
         && let Some(home) = dirs::home_dir()
     {
-        let home_canonical = home
-            .canonicalize()
-            .unwrap_or_else(|_| home.clone());
+        let home_canonical = home.canonicalize().unwrap_or_else(|_| home.clone());
         if !canonical.starts_with(&home_canonical) {
-            return Err(PeekabooError::System(
-                "path escapes home directory".into(),
-            ));
+            return Err(PeekabooError::System("path escapes home directory".into()));
         }
     }
 
@@ -568,8 +574,8 @@ fn expand_home_raw(path: &Path) -> Result<PathBuf> {
     if text == "~" {
         dirs::home_dir().ok_or_else(|| PeekabooError::System("home directory not found".into()))
     } else if let Some(rest) = text.strip_prefix("~/") {
-        let home =
-            dirs::home_dir().ok_or_else(|| PeekabooError::System("home directory not found".into()))?;
+        let home = dirs::home_dir()
+            .ok_or_else(|| PeekabooError::System("home directory not found".into()))?;
         Ok(home.join(rest))
     } else {
         Ok(path.to_path_buf())
@@ -683,7 +689,10 @@ mod tests {
     #[test]
     fn required_str_should_require_argument() {
         assert!(required_str(&json!({}), "text").is_err());
-        assert_eq!(required_str(&json!({ "text": "hi" }), "text").unwrap(), "hi");
+        assert_eq!(
+            required_str(&json!({ "text": "hi" }), "text").unwrap(),
+            "hi"
+        );
     }
 
     #[test]

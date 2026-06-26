@@ -1,8 +1,8 @@
 //! Vision mode: screenshot-first with external detection import.
 //! No model provider dependency — accepts detections from JSON.
 
-use crate::models::{UiNode, VisionDetections};
 use crate::Result;
+use crate::models::{UiNode, VisionDetections};
 use std::path::Path;
 
 pub fn capture_screenshot(path: &Path) -> Result<()> {
@@ -62,12 +62,12 @@ pub fn merge_ax_vision(ax_nodes: &[UiNode], vision_nodes: &[UiNode]) -> Vec<UiNo
         let overlap = merged.iter().position(|ax| {
             ax.bounds
                 .zip(vn.bounds)
-                .map_or(false, |(a, v)| a.overlaps(&v))
+                .is_some_and(|(a, v)| a.overlaps(&v))
         });
         match overlap {
             Some(idx) => {
                 let mut existing = merged[idx].clone();
-                if existing.title.as_ref().map_or(true, String::is_empty) {
+                if existing.title.as_ref().is_none_or(String::is_empty) {
                     existing.title = vn.title.clone();
                 }
                 if !existing.source.contains(&"vision".into()) {
@@ -96,7 +96,12 @@ mod tests {
             elements: vec![VisionElement {
                 role: Some("button".into()),
                 label: Some("OK".into()),
-                bounds: Some(Bounds { x: 0, y: 0, width: 10, height: 10 }),
+                bounds: Some(Bounds {
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                }),
                 confidence: Some(0.95),
             }],
         };
@@ -122,7 +127,12 @@ mod tests {
             app: "Test".into(),
             pid: None,
             window: None,
-            bounds: Some(Bounds { x: 0, y: 0, width: 100, height: 40 }),
+            bounds: Some(Bounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 40,
+            }),
             enabled: None,
             focused: None,
             selected: None,
@@ -150,7 +160,12 @@ mod tests {
             app: String::new(),
             pid: None,
             window: None,
-            bounds: Some(Bounds { x: 5, y: 5, width: 90, height: 30 }),
+            bounds: Some(Bounds {
+                x: 5,
+                y: 5,
+                width: 90,
+                height: 30,
+            }),
             enabled: None,
             focused: None,
             selected: None,

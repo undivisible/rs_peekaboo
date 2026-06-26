@@ -105,7 +105,11 @@ impl Selector {
             }
         }
         if let Some(ref contains) = self.role_contains {
-            if !node.role.to_ascii_lowercase().contains(&contains.to_ascii_lowercase()) {
+            if !node
+                .role
+                .to_ascii_lowercase()
+                .contains(&contains.to_ascii_lowercase())
+            {
                 return false;
             }
         }
@@ -117,7 +121,9 @@ impl Selector {
         }
         if let Some(ref contains) = self.title_contains {
             match &node.title {
-                Some(t) if t.to_ascii_lowercase().contains(&contains.to_ascii_lowercase()) => {}
+                Some(t)
+                    if t.to_ascii_lowercase()
+                        .contains(&contains.to_ascii_lowercase()) => {}
                 _ => return false,
             }
         }
@@ -129,7 +135,9 @@ impl Selector {
         }
         if let Some(ref contains) = self.label_contains {
             match &node.label {
-                Some(l) if l.to_ascii_lowercase().contains(&contains.to_ascii_lowercase()) => {}
+                Some(l)
+                    if l.to_ascii_lowercase()
+                        .contains(&contains.to_ascii_lowercase()) => {}
                 _ => return false,
             }
         }
@@ -173,11 +181,9 @@ impl Selector {
     }
 
     /// Return the first match, or None.
-    pub fn first_match<'a>(&self, nodes: &'a [UiNode]) -> Option<UiNode> {
+    pub fn first_match(&self, nodes: &[UiNode]) -> Option<UiNode> {
         match self.index {
-            Some(idx) => {
-                nodes.iter().filter(|n| self.matches(n)).nth(idx).cloned()
-            }
+            Some(idx) => nodes.iter().filter(|n| self.matches(n)).nth(idx).cloned(),
             None => nodes.iter().find(|n| self.matches(n)).cloned(),
         }
     }
@@ -202,7 +208,12 @@ mod tests {
             app: "Safari".into(),
             pid: Some(1234),
             window: Some("Window".into()),
-            bounds: Some(Bounds { x: 10, y: 20, width: 100, height: 40 }),
+            bounds: Some(Bounds {
+                x: 10,
+                y: 20,
+                width: 100,
+                height: 40,
+            }),
             enabled: Some(true),
             focused: Some(false),
             selected: None,
@@ -259,55 +270,97 @@ mod tests {
     #[test]
     fn matches_exact_role() {
         let node = sample_node();
-        let sel = Selector { role: Some("button".into()), ..Default::default() };
+        let sel = Selector {
+            role: Some("button".into()),
+            ..Default::default()
+        };
         assert!(sel.matches(&node));
-        let sel2 = Selector { role: Some("textfield".into()), ..Default::default() };
+        let sel2 = Selector {
+            role: Some("textfield".into()),
+            ..Default::default()
+        };
         assert!(!sel2.matches(&node));
     }
 
     #[test]
     fn matches_title_contains() {
         let node = sample_node();
-        let sel = Selector { title_contains: Some("ub".into()), ..Default::default() };
+        let sel = Selector {
+            title_contains: Some("ub".into()),
+            ..Default::default()
+        };
         assert!(sel.matches(&node));
-        let sel2 = Selector { title_contains: Some("Bmit".into()), ..Default::default() };
+        let sel2 = Selector {
+            title_contains: Some("Bmit".into()),
+            ..Default::default()
+        };
         assert!(sel2.matches(&node));
     }
 
     #[test]
     fn matches_app() {
         let node = sample_node();
-        let sel = Selector { app: Some("Safari".into()), ..Default::default() };
+        let sel = Selector {
+            app: Some("Safari".into()),
+            ..Default::default()
+        };
         assert!(sel.matches(&node));
-        let sel2 = Selector { app: Some("Chrome".into()), ..Default::default() };
+        let sel2 = Selector {
+            app: Some("Chrome".into()),
+            ..Default::default()
+        };
         assert!(!sel2.matches(&node));
     }
 
     #[test]
     fn matches_pid() {
         let node = sample_node();
-        let sel = Selector { pid: Some(1234), ..Default::default() };
+        let sel = Selector {
+            pid: Some(1234),
+            ..Default::default()
+        };
         assert!(sel.matches(&node));
-        let sel2 = Selector { pid: Some(9999), ..Default::default() };
+        let sel2 = Selector {
+            pid: Some(9999),
+            ..Default::default()
+        };
         assert!(!sel2.matches(&node));
     }
 
     #[test]
     fn matches_focused() {
         let node = sample_node();
-        let sel = Selector { focused: Some(false), ..Default::default() };
+        let sel = Selector {
+            focused: Some(false),
+            ..Default::default()
+        };
         assert!(sel.matches(&node));
-        let sel2 = Selector { focused: Some(true), ..Default::default() };
+        let sel2 = Selector {
+            focused: Some(true),
+            ..Default::default()
+        };
         assert!(!sel2.matches(&node));
     }
 
     #[test]
     fn filter_respects_index() {
         let nodes = vec![
-            UiNode { id: "a".into(), role: "button".into(), ..sample_node() },
-            UiNode { id: "b".into(), role: "button".into(), ..sample_node() },
+            UiNode {
+                id: "a".into(),
+                role: "button".into(),
+                ..sample_node()
+            },
+            UiNode {
+                id: "b".into(),
+                role: "button".into(),
+                ..sample_node()
+            },
         ];
-        let sel = Selector { role: Some("button".into()), index: Some(1), ..Default::default() };
+        let sel = Selector {
+            role: Some("button".into()),
+            index: Some(1),
+            ..Default::default()
+        };
         let result = sel.filter(&nodes);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "b");
@@ -316,7 +369,10 @@ mod tests {
     #[test]
     fn first_match_returns_none_when_no_match() {
         let nodes = vec![sample_node()];
-        let sel = Selector { role: Some("window".into()), ..Default::default() };
+        let sel = Selector {
+            role: Some("window".into()),
+            ..Default::default()
+        };
         assert!(sel.first_match(&nodes).is_none());
     }
 }

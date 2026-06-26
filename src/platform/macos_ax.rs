@@ -4,8 +4,8 @@
 
 #![allow(non_camel_case_types, non_upper_case_globals, dead_code)]
 
-use crate::models::{Bounds, Point, UiNode};
 use crate::Result;
+use crate::models::{Bounds, Point, UiNode};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -80,8 +80,11 @@ unsafe extern "C" {
     ) -> OSStatus;
     fn AXUIElementCopyActionNames(element: AXUIElementRef, names: *mut CFArrayRef) -> OSStatus;
     fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> OSStatus;
-    fn AXUIElementSetAttributeValue(element: AXUIElementRef, attribute: CFStringRef, value: CFTypeRef)
-        -> OSStatus;
+    fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: CFTypeRef,
+    ) -> OSStatus;
     fn AXUIElementCopyElementAtPosition(
         element: AXUIElementRef,
         x: f64,
@@ -90,7 +93,8 @@ unsafe extern "C" {
     ) -> OSStatus;
     fn AXUIElementCopyAttributeNames(element: AXUIElementRef, names: *mut CFArrayRef) -> OSStatus;
     fn AXValueGetType(value: AXValueRef) -> u32;
-    fn AXValueGetValue(value: AXValueRef, theType: u32, valuePtr: *mut std::ffi::c_void) -> Boolean;
+    fn AXValueGetValue(value: AXValueRef, theType: u32, valuePtr: *mut std::ffi::c_void)
+    -> Boolean;
 }
 
 const kAXValueCGPointType: u32 = 1;
@@ -193,7 +197,10 @@ fn ax_copy_position(element: AXUIElementRef) -> Option<Point> {
             };
             release(value);
             if ok != 0 {
-                return Some(Point { x: pt.x as i64, y: pt.y as i64 });
+                return Some(Point {
+                    x: pt.x as i64,
+                    y: pt.y as i64,
+                });
             }
         } else {
             release(value);
@@ -351,7 +358,12 @@ fn build_node(
     let pos = ax_copy_position(element);
     let sz = ax_copy_size(element);
     let bounds = match (pos, sz) {
-        (Some(p), Some((w, h))) => Some(Bounds { x: p.x, y: p.y, width: w, height: h }),
+        (Some(p), Some((w, h))) => Some(Bounds {
+            x: p.x,
+            y: p.y,
+            width: w,
+            height: h,
+        }),
         _ => None,
     };
     let actions = ax_copy_action_names(element);
@@ -404,8 +416,16 @@ fn build_tree_recursive(
     let children = ax_copy_children(element);
     let mut nodes = Vec::new();
     for (i, child) in children.iter().enumerate() {
-        if let Some(mut node) = build_node(*child, app_name, pid, depth + 1, parent_id.clone(), i as i32) {
-            let sub_children = build_tree_recursive(*child, app_name, pid, depth + 1, Some(node.id.clone()));
+        if let Some(mut node) = build_node(
+            *child,
+            app_name,
+            pid,
+            depth + 1,
+            parent_id.clone(),
+            i as i32,
+        ) {
+            let sub_children =
+                build_tree_recursive(*child, app_name, pid, depth + 1, Some(node.id.clone()));
             node.children_count = Some(sub_children.len() as i32);
             nodes.push(node);
             nodes.extend(sub_children);
@@ -443,7 +463,8 @@ fn get_windows_for_app(pid: i32, app_name: &str) -> Vec<UiNode> {
         let mut root = build_node(window, app_name, Some(pid), 0, None, i as i32);
         if let Some(ref mut node) = root {
             node.window = Some(window_title.clone());
-            let mut children = build_tree_recursive(window, app_name, Some(pid), 0, Some(node.id.clone()));
+            let mut children =
+                build_tree_recursive(window, app_name, Some(pid), 0, Some(node.id.clone()));
             node.children_count = Some(children.len() as i32);
             nodes.push(node.clone());
             nodes.append(&mut children);
@@ -471,10 +492,17 @@ pub fn ui_elements(app_filter: Option<&str>) -> Result<Vec<UiNode>> {
                 r#"tell application "System Events" to get name of process whose unix id is {}"#,
                 pid
             );
-            let out = std::process::Command::new("osascript").args(["-e", &script]).output().ok()?;
+            let out = std::process::Command::new("osascript")
+                .args(["-e", &script])
+                .output()
+                .ok()?;
             let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if name.is_empty() { return None; }
-            if app_filter.is_some_and(|f| !name.eq_ignore_ascii_case(f)) { return None; }
+            if name.is_empty() {
+                return None;
+            }
+            if app_filter.is_some_and(|f| !name.eq_ignore_ascii_case(f)) {
+                return None;
+            }
             Some((pid, name))
         })
         .collect();
@@ -488,19 +516,33 @@ pub fn ui_elements(app_filter: Option<&str>) -> Result<Vec<UiNode>> {
 
 pub fn element_at_point(point: Point) -> Option<UiNode> {
     let system = unsafe { AXUIElementCreateSystemWide() };
-    if system.is_null() { return None; }
+    if system.is_null() {
+        return None;
+    }
     let mut element: AXUIElementRef = ptr::null_mut();
-    let status = unsafe { AXUIElementCopyElementAtPosition(system, point.x as f64, point.y as f64, &mut element) };
+    let status = unsafe {
+        AXUIElementCopyElementAtPosition(system, point.x as f64, point.y as f64, &mut element)
+    };
     release(system);
-    if status != kAXErrorSuccess || element.is_null() { return None; }
+    if status != kAXErrorSuccess || element.is_null() {
+        return None;
+    }
 
     let pid = ax_get_pid(element);
-    let app_name = pid.and_then(|pid| {
-        let script = format!(r#"tell application "System Events" to get name of process whose unix id is {}"#, pid);
-        let out = std::process::Command::new("osascript").args(["-e", &script]).output().ok()?;
-        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if name.is_empty() { None } else { Some(name) }
-    }).unwrap_or_default();
+    let app_name = pid
+        .and_then(|pid| {
+            let script = format!(
+                r#"tell application "System Events" to get name of process whose unix id is {}"#,
+                pid
+            );
+            let out = std::process::Command::new("osascript")
+                .args(["-e", &script])
+                .output()
+                .ok()?;
+            let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if name.is_empty() { None } else { Some(name) }
+        })
+        .unwrap_or_default();
 
     let node = build_node(element, &app_name, pid, 0, None, 0);
     release(element);
@@ -509,21 +551,33 @@ pub fn element_at_point(point: Point) -> Option<UiNode> {
 
 pub fn focused_element() -> Option<UiNode> {
     let system = unsafe { AXUIElementCreateSystemWide() };
-    if system.is_null() { return None; }
+    if system.is_null() {
+        return None;
+    }
     let key = cf_string("AXFocusedUIElement");
     let mut element: CFTypeRef = ptr::null_mut();
     let status = unsafe { AXUIElementCopyAttributeValue(system, key, &mut element) };
     release(key);
     release(system);
-    if status != kAXErrorSuccess || element.is_null() { return None; }
+    if status != kAXErrorSuccess || element.is_null() {
+        return None;
+    }
 
     let pid = ax_get_pid(element);
-    let app_name = pid.and_then(|pid| {
-        let script = format!(r#"tell application "System Events" to get name of process whose unix id is {}"#, pid);
-        let out = std::process::Command::new("osascript").args(["-e", &script]).output().ok()?;
-        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if name.is_empty() { None } else { Some(name) }
-    }).unwrap_or_default();
+    let app_name = pid
+        .and_then(|pid| {
+            let script = format!(
+                r#"tell application "System Events" to get name of process whose unix id is {}"#,
+                pid
+            );
+            let out = std::process::Command::new("osascript")
+                .args(["-e", &script])
+                .output()
+                .ok()?;
+            let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if name.is_empty() { None } else { Some(name) }
+        })
+        .unwrap_or_default();
 
     let node = build_node(element, &app_name, pid, 0, None, 0);
     release(element);

@@ -177,12 +177,20 @@ pub fn paste(text: &str) -> Result<Value> {
     }))
 }
 
-pub fn set_value(point: Point, value: &str) -> Result<Value> {
+pub fn set_value(element: &UiElement, value: &str) -> Result<Value> {
+    let point = element
+        .bounds
+        .map(|b| b.center())
+        .unwrap_or(Point { x: 0, y: 0 });
     click(point, "left", 1)?;
     type_text(value, true, false, None, None)
 }
 
-pub fn perform_action(point: Point, action: &str) -> Result<Value> {
+pub fn perform_action(element: &UiElement, action: &str) -> Result<Value> {
+    let point = element
+        .bounds
+        .map(|b| b.center())
+        .unwrap_or(Point { x: 0, y: 0 });
     match action {
         "right_click" | "right-click" => click(point, "right", 1),
         "double_click" | "double-click" | "open" | "press" => click(point, "left", 2),

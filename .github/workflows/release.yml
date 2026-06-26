@@ -11,12 +11,24 @@ jobs:
   release:
     strategy:
       matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
-          - x86_64-unknown-linux-gnu
-          - x86_64-pc-windows-msvc
-    runs-on: ubuntu-latest
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+            archive: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+            archive: tar.gz
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            archive: zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,43 +41,38 @@ jobs:
       - name: Package archive and checksum
         shell: bash
         run: |
-          BIN="rs-peekaboo"
+          BIN="rs-peekaboo${{ matrix.ext }}"
           TAG="${GITHUB_REF_NAME}"
           TARGET="${{ matrix.target }}"
           DIR="${BIN}-${TAG}-${TARGET}"
           mkdir -p "${DIR}"
-
-          if [[ "${{ matrix.target }}" == *-pc-windows-* ]]; then
-            cp "target/${TARGET}/release/${BIN}.exe" "${DIR}/"
+          cp "target/${TARGET}/release/${BIN}" "${DIR}/"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
             ARCHIVE="${DIR}.zip"
             (cd "${DIR}" && zip -r "../${ARCHIVE}" .) > /dev/null
           else
-            cp "target/${TARGET}/release/${BIN}" "${DIR}/"
             ARCHIVE="${DIR}.tar.gz"
             tar czf "${ARCHIVE}" "${DIR}"
           fi
-
-          sha256sum "${ARCHIVE}" | tee "${ARCHIVE}.sha256"
-          echo "archive=${ARCHIVE}" >> "${GITHUB_ENV}"
+          echo "ASSET=${ARCHIVE}" >> "${GITHUB_ENV}"
+          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          echo "ASSET_SHA=${ARCHIVE}.sha256" >> "${GITHUB_ENV}"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ env.archive }}
-            ${{ env.archive }}.sha256
+            ${{ env.ASSET }}
+            ${{ env.ASSET_SHA }}
+          generate_release_notes: true
 
   publish:
     needs: [release]
     runs-on: ubuntu-latest
-    env:
-      TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    if: vars.CARGO_REGISTRY_TOKEN != '' || secrets.CARGO_REGISTRY_TOKEN != ''
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Publish to crates.io
-        if: env.TOKEN != ''
-        run: cargo publish
+      - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

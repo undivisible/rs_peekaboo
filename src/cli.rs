@@ -1,9 +1,13 @@
 use crate::automation::{Target, parse_point, split_keys};
 use crate::cache;
-use crate::{Bounds, CommandResult, Direction, ImageMode, Peekaboo, Result};
+use crate::{
+    Bounds, CommandResult, ComputerUseMode, Direction, ImageMode, Peekaboo, PeekabooConfig,
+    Result, UiNode, VisionDetections,
+};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -14,6 +18,10 @@ use std::time::Duration;
 pub struct Cli {
     #[arg(long, global = true, visible_alias = "json-output")]
     pub json: bool,
+    // ponytail: not global=true to avoid shadowing subcommand --mode (ImageMode).
+    // Env var RS_PEEKABOO_MODE works without global propagation.
+    #[arg(long, env = "RS_PEEKABOO_MODE")]
+    pub mode: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -22,6 +30,7 @@ pub struct Cli {
 pub enum Commands {
     See(SeeArgs),
     Image(ImageArgs),
+    Vision(VisionArgs),
     List(ListArgs),
     Click(ClickArgs),
     Type(TypeArgs),
@@ -58,6 +67,14 @@ pub struct SeeArgs {
     pub path: Option<PathBuf>,
     #[arg(long)]
     pub retina: bool,
+    #[arg(long)]
+    pub tree: bool,
+    #[arg(long)]
+    pub flat: bool,
+    #[arg(long)]
+    pub focused: bool,
+    #[arg(long)]
+    pub at: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -68,6 +85,16 @@ pub struct ImageArgs {
     pub path: Option<PathBuf>,
     #[arg(long)]
     pub retina: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct VisionArgs {
+    #[arg(long)]
+    pub import: Option<PathBuf>,
+    #[arg(long)]
+    pub screenshot: Option<PathBuf>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -90,6 +117,8 @@ pub struct ClickArgs {
     pub target: Option<String>,
     #[arg(long)]
     pub on: Option<String>,
+    #[arg(long)]
+    pub query: Option<String>,
     #[arg(long)]
     pub coords: Option<String>,
     #[arg(long)]
@@ -339,14 +368,55 @@ pub enum CompletionShell {
 }
 
 pub fn execute(cli: Cli) -> Result<()> {
-    let peekaboo = Peekaboo::new();
+    let config = PeekabooConfig {
+        mode: cli
+            .mode
+            .as_deref()
+            .map(ComputerUseMode::parse)
+            .transpose()?
+            .unwrap_or_default(),
+    };
+    let peekaboo = Peekaboo::with_config(config);
     let result = match cli.command {
-        Commands::See(args) => CommandResult::ok(peekaboo.see(
-            args.app.as_deref(),
-            ImageMode::parse_or_err(&args.mode)?,
-            args.path,
-            args.retina,
-        )?)?,
+        Commands::See(args) => {
+            let snapshot = peekaboo.see(
+                args.app.as_deref(),
+                ImageMode::parse_or_err(&args.mode)?,
+                args.path,
+                args.retina,
+            )?;
+            if args.tree {
+                CommandResult::ok(build_element_tree(
+                    &snapshot.elements.into_iter().map(UiNode::from).collect::<Vec<_>>(),
+                ))?
+            } else if args.focused {
+                let nodes: Vec<UiNode> =
+                    snapshot.elements.into_iter().map(UiNode::from).collect();
+                let focused: Vec<&UiNode> =
+                    nodes.iter().filter(|n| n.focused == Some(true)).collect();
+                CommandResult::ok(json!({
+                    "snapshot_id": snapshot.snapshot_id,
+                    "elements": focused
+                }))?
+            } else if let Some(ref at) = args.at {
+                let point = parse_point(at)?;
+                let nodes: Vec<UiNode> =
+                    snapshot.elements.into_iter().map(UiNode::from).collect();
+                let at_elem: Vec<&UiNode> = nodes
+                    .iter()
+                    .filter(|n| n.bounds.map_or(false, |b| b.contains(&point)))
+                    .collect();
+                CommandResult::ok(json!({
+                    "snapshot_id": snapshot.snapshot_id,
+                    "elements": at_elem
+                }))?
+            } else {
+                CommandResult::ok(json!({
+                    "snapshot_id": snapshot.snapshot_id,
+                    "elements": snapshot.elements
+                }))?
+            }
+        }
         Commands::Image(args) => CommandResult::ok(peekaboo.image(
             ImageMode::parse_or_err(&args.mode)?,
             args.path,
@@ -436,6 +506,66 @@ pub fn execute(cli: Cli) -> Result<()> {
         )?,
         Commands::Tools(_) => CommandResult::ok(tool_catalog())?,
         Commands::Completions(args) => return completions(args.shell),
+        Commands::Vision(args) => {
+            let mut map = serde_json::Map::new();
+            if let Some(ref import_path) = args.import {
+                let data = std::fs::read(import_path)?;
+                let detections: VisionDetections = serde_json::from_slice(&data)?;
+                let vision_nodes: Vec<UiNode> = detections
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .map(|(i, el)| {
+                        let role = el.role.clone().unwrap_or_else(|| "unknown".into());
+                        UiNode {
+                            id: format!("vision:{i}"),
+                            backend: "vision".into(),
+                            role,
+                            subrole: None,
+                            title: el.label.clone(),
+                            label: el.label.clone(),
+                            description: None,
+                            value: None,
+                            identifier: None,
+                            app: String::new(),
+                            pid: None,
+                            window: None,
+                            bounds: el.bounds,
+                            enabled: None,
+                            focused: None,
+                            selected: None,
+                            depth: None,
+                            index_in_parent: Some(i as i32),
+                            parent_id: None,
+                            children: None,
+                            children_count: None,
+                            actions: Vec::new(),
+                            attributes: std::collections::HashMap::new(),
+                            confidence: el.confidence,
+                            source: vec!["vision".into()],
+                            state: serde_json::json!({}),
+                        }
+                    })
+                    .collect();
+                map.insert("elements".into(), json!(vision_nodes));
+                map.insert("source".into(), json!("import"));
+            }
+            if let Some(ref screenshot_path) = args.screenshot {
+                peekaboo.image(
+                    ImageMode::Screen,
+                    Some(screenshot_path.clone()),
+                    false,
+                )?;
+                map.insert(
+                    "screenshot".into(),
+                    json!(screenshot_path.to_string_lossy().to_string()),
+                );
+            }
+            if args.json && map.is_empty() {
+                map.insert("ok".into(), json!(true));
+            }
+            CommandResult::ok(Value::Object(map))?
+        }
     };
     emit(result, cli.json)
 }
@@ -445,7 +575,8 @@ fn target_from_click(args: ClickArgs) -> Result<Target> {
         return Ok(Target::Point(parse_point(&coords)?));
     }
     let query = args
-        .on
+        .query
+        .or(args.on)
         .or(args.target)
         .ok_or(crate::PeekabooError::MissingArgument("target"))?;
     Ok(Target::Query {
@@ -528,6 +659,7 @@ fn tool_catalog() -> Value {
     json!([
         "see",
         "image",
+        "vision",
         "list",
         "click",
         "type",
@@ -566,6 +698,37 @@ fn completions(shell: CompletionShell) -> Result<()> {
     Ok(())
 }
 
+fn build_element_tree(nodes: &[UiNode]) -> Value {
+    let mut by_app: BTreeMap<String, Vec<&UiNode>> = BTreeMap::new();
+    for node in nodes {
+        by_app.entry(node.app.clone()).or_default().push(node);
+    }
+    let tree: Vec<Value> = by_app
+        .into_iter()
+        .map(|(app, nodes)| {
+            let mut by_window: BTreeMap<String, Vec<&UiNode>> = BTreeMap::new();
+            for node in &nodes {
+                let key = node.window.clone().unwrap_or_default();
+                by_window.entry(key).or_default().push(node);
+            }
+            let windows: Vec<Value> = by_window
+                .into_iter()
+                .map(|(window, nodes)| {
+                    json!({
+                        "window": window,
+                        "elements": nodes
+                    })
+                })
+                .collect();
+            json!({
+                "app": app,
+                "windows": windows
+            })
+        })
+        .collect();
+    json!(tree)
+}
+
 fn emit(result: CommandResult, json_output: bool) -> Result<()> {
     if json_output {
         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -594,6 +757,7 @@ mod tests {
         let args = ClickArgs {
             target: None,
             on: None,
+            query: None,
             coords: Some("10,20".to_string()),
             snapshot: None,
             button: "right".to_string(),

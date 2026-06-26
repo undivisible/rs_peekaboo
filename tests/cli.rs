@@ -51,6 +51,8 @@ fn completions_should_print_shell_script() {
 
 #[test]
 fn json_should_emit_structured_error_for_invalid_image_mode() {
+    // Global --mode before subcommand sets ComputerUseMode; subcommand --mode sets ImageMode.
+    // Without global mode, image --mode bogus hits ImageMode::parse_or_err.
     let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
     cmd.args(["--json", "image", "--mode", "bogus"])
         .assert()
@@ -58,6 +60,15 @@ fn json_should_emit_structured_error_for_invalid_image_mode() {
         .stdout(predicate::str::contains("\"ok\": false"))
         .stdout(predicate::str::contains(
             "\"error\": \"invalid image mode: bogus\"",
+        ));
+    // Global --mode before subcommand sets ComputerUseMode
+    let mut cmd2 = Command::cargo_bin("rs-peekaboo").unwrap();
+    cmd2.args(["--json", "--mode", "bogus", "image"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"ok\": false"))
+        .stdout(predicate::str::contains(
+            "\"error\": \"invalid mode: bogus, expected hybrid|native|vision|legacy|coords\"",
         ));
 }
 

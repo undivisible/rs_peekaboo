@@ -46,7 +46,7 @@ jobs:
           BIN="rs-peekaboo${{ matrix.ext }}"
           TAG="${GITHUB_REF_NAME}"
           TARGET="${{ matrix.target }}"
-          DIR="${BIN}-${TAG}-${TARGET}"
+          DIR="rs-peekaboo-${TAG}-${TARGET}"
           mkdir -p "${DIR}"
           cp "target/${TARGET}/release/${BIN}" "${DIR}/"
           if [ "${{ matrix.archive }}" = "zip" ]; then
@@ -56,8 +56,15 @@ jobs:
             ARCHIVE="${DIR}.tar.gz"
             tar czf "${ARCHIVE}" "${DIR}"
           fi
+          # sha256sum compatible (python works everywhere)
+          python3 -c "
+import hashlib, sys
+path = sys.argv[1]
+h = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+with open(path + '.sha256', 'w') as f:
+    f.write(h + '  ' + path + chr(10))
+" "${ARCHIVE}"
           echo "ASSET=${ARCHIVE}" >> "${GITHUB_ENV}"
-          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
           echo "ASSET_SHA=${ARCHIVE}.sha256" >> "${GITHUB_ENV}"
 
       - name: Upload to release

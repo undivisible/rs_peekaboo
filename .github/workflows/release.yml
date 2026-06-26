@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    tags: v*
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -69,10 +70,10 @@ jobs:
   publish:
     needs: [release]
     runs-on: ubuntu-latest
-    if: vars.CARGO_REGISTRY_TOKEN != '' || secrets.CARGO_REGISTRY_TOKEN != ''
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish
+      - name: Publish to crates.io
+        run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

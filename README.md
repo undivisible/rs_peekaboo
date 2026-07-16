@@ -27,14 +27,18 @@ cargo install --path .
 
 ```bash
 rs-peekaboo image --mode screen --path ~/Desktop/screen.png
+rs-peekaboo image --app Safari --path ~/Desktop/safari.png
 rs-peekaboo see --app Safari --json
 rs-peekaboo click --coords 500,300
+rs-peekaboo click --index 3 --snapshot snap-... --background
 rs-peekaboo type "hello" --return
 rs-peekaboo hotkey cmd,l
 rs-peekaboo window list --json
 rs-peekaboo app launch --app Safari
 rs-peekaboo clipboard read --json
+rs-peekaboo doctor --json
 rs-peekaboo shell "fastfetch --logo none" --json
+rs-peekaboo mcp   # MCP stdio server for agent hosts
 ```
 
 Global flags:
@@ -43,6 +47,8 @@ Global flags:
 | --- | --- |
 | `--json` | Print structured JSON instead of human output. |
 | `--json-output` | Alias for `--json`. |
+| `--background` | Prefer AX/background actions that avoid focus steal. |
+| `--mode` | Computer-use backend: `hybrid` (default macOS), `native`, `vision`, `legacy`, `coords`. |
 
 Commands:
 
@@ -76,6 +82,8 @@ Commands:
 | `run` | Execute a JSON automation script. |
 | `sleep` | Sleep for a number of seconds. |
 | `clean` | Remove cached snapshots. |
+| `doctor` | Health report: permissions, tools, capabilities. |
+| `mcp` | Speak MCP over stdio for agent harnesses. |
 | `tools` | Print the command catalog. |
 | `completions` | Generate shell completions. |
 
@@ -113,6 +121,7 @@ rs-peekaboo see --app Safari --json
         "label": "Example",
         "app": "Safari",
         "window": "Example",
+        "index": 0,
         "bounds": {
           "x": 0,
           "y": 25,
@@ -126,6 +135,12 @@ rs-peekaboo see --app Safari --json
     ]
   }
 }
+```
+
+Click by stable snapshot index:
+
+```bash
+rs-peekaboo click --index 0 --snapshot snap-... --background --json
 ```
 
 ## Library

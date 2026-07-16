@@ -395,6 +395,7 @@ fn build_node(
         selected,
         depth: Some(depth),
         index_in_parent: Some(index),
+        index: None,
         parent_id,
         children: None,
         children_count: None,
@@ -606,10 +607,58 @@ pub unsafe fn ax_set_value(element: AXUIElementRef, value: &str) -> bool {
     status == kAXErrorSuccess
 }
 
-// ── Click / set-value / perform-action (fallback for now) ──────────────
+// ── Click / set-value / perform-action ─────────────────────────────────
 
 pub fn click(point: Point, _button: &str, _count: u32) -> Result<Value> {
     super::macos_cg::move_cursor(point)
+}
+
+/// Background-friendly click: AXPress when element has bounds/actions, no focus steal.
+pub fn click_element(
+    element: &crate::UiElement,
+    button: &str,
+    count: u32,
+) -> Result<Value> {
+    // Prefer AX action via System Events without activating the app.
+    // ponytail: full FocusGuard lease needs private APIs; AXPress-only is enough for most agents.
+    let action = if button == "right" {
+        "AXShowMenu"
+    } else {
+        "AXPress"
+    };
+    let count = count.max(1);
+    let mut last_err = None;
+    for _ in 0..count {
+        match super::macos_legacy::perform_action(element, action) {
+            Ok(_) => {}
+            Err(err) => {
+                last_err = Some(err);
+                break;
+            }
+        }
+    }
+    if last_err.is_none() {
+        return Ok(serde_json::json!({
+            "target": element.id,
+            "button": button,
+            "count": count,
+            "background": true,
+            "method": "ax"
+        }));
+    }
+
+    // Fallback: click center without explicit activate (coords still may focus).
+    let point = element
+        .bounds
+        .map(|b| b.center())
+        .ok_or_else(|| crate::PeekabooError::TargetNotFound(element.id.clone()))?;
+    let mut value = super::macos_legacy::click(point, button, count)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("background".into(), serde_json::json!(false));
+        obj.insert("method".into(), serde_json::json!("coords"));
+        obj.insert("target".into(), serde_json::json!(element.id));
+    }
+    Ok(value)
 }
 
 pub fn set_value(element: &UiNode, value: &str) -> Result<Value> {

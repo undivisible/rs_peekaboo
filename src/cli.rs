@@ -22,6 +22,9 @@ pub struct Cli {
     // Env var RS_PEEKABOO_MODE works without global propagation.
     #[arg(long, env = "RS_PEEKABOO_MODE")]
     pub mode: Option<String>,
+    /// Prefer background/AX actions that avoid focus steal when possible.
+    #[arg(long, global = true, env = "RS_PEEKABOO_BACKGROUND")]
+    pub background: bool,
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -53,6 +56,8 @@ pub enum Commands {
     Run(RunArgs),
     Sleep(SleepArgs),
     Clean(CleanArgs),
+    Doctor(DoctorArgs),
+    Mcp(McpArgs),
     Tools(ToolsArgs),
     Completions(CompletionsArgs),
 }
@@ -85,6 +90,9 @@ pub struct ImageArgs {
     pub path: Option<PathBuf>,
     #[arg(long)]
     pub retina: bool,
+    /// Capture primary window of this app (window-scoped).
+    #[arg(long)]
+    pub app: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -123,10 +131,16 @@ pub struct ClickArgs {
     pub coords: Option<String>,
     #[arg(long)]
     pub snapshot: Option<String>,
+    /// Click by stable snapshot element index.
+    #[arg(long)]
+    pub index: Option<u32>,
     #[arg(long, default_value = "left")]
     pub button: String,
     #[arg(long, default_value_t = 1)]
     pub count: u32,
+    /// Prefer AX/background action without focus steal.
+    #[arg(long)]
+    pub background: bool,
 }
 
 #[derive(Args, Debug)]
@@ -352,6 +366,12 @@ pub struct CleanArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct DoctorArgs;
+
+#[derive(Args, Debug)]
+pub struct McpArgs;
+
+#[derive(Args, Debug)]
 pub struct ToolsArgs;
 
 #[derive(Args, Debug)]
@@ -375,6 +395,7 @@ pub fn execute(cli: Cli) -> Result<()> {
             .map(ComputerUseMode::parse)
             .transpose()?
             .unwrap_or_default(),
+        background: cli.background,
     };
     let peekaboo = Peekaboo::with_config(config);
     let result = match cli.command {
@@ -419,11 +440,17 @@ pub fn execute(cli: Cli) -> Result<()> {
                 }))?
             }
         }
-        Commands::Image(args) => CommandResult::ok(peekaboo.image(
-            ImageMode::parse_or_err(&args.mode)?,
-            args.path,
-            args.retina,
-        )?)?,
+        Commands::Image(args) => {
+            if let Some(app) = args.app.as_deref() {
+                CommandResult::ok(peekaboo.image_app(app, args.path, args.retina)?)?
+            } else {
+                CommandResult::ok(peekaboo.image(
+                    ImageMode::parse_or_err(&args.mode)?,
+                    args.path,
+                    args.retina,
+                )?)?
+            }
+        }
         Commands::List(args) => CommandResult::ok(match args.kind {
             ListKind::Apps => peekaboo.list_apps()?,
             ListKind::Windows => peekaboo.list_windows()?,
@@ -432,8 +459,9 @@ pub fn execute(cli: Cli) -> Result<()> {
             ListKind::Permissions => peekaboo.permissions(),
         })?,
         Commands::Click(args) => {
+            let background = args.background || peekaboo.config.background;
             let (target, button, count) = click_request(args)?;
-            CommandResult::ok(peekaboo.click(target, &button, count)?)?
+            CommandResult::ok(peekaboo.click_with_options(target, &button, count, background)?)?
         }
         Commands::Type(args) => CommandResult::ok(peekaboo.type_text(
             args.text.as_deref().unwrap_or_default(),
@@ -504,6 +532,8 @@ pub fn execute(cli: Cli) -> Result<()> {
         Commands::Clean(args) => CommandResult::ok(
             json!({ "removed": cache::clean_snapshots(args.all_snapshots, args.snapshot.as_deref())? }),
         )?,
+        Commands::Doctor(_) => CommandResult::ok(peekaboo.doctor()?)?,
+        Commands::Mcp(_) => return crate::mcp::serve(&peekaboo),
         Commands::Tools(_) => CommandResult::ok(tool_catalog())?,
         Commands::Completions(args) => return completions(args.shell),
         Commands::Vision(args) => {
@@ -536,6 +566,7 @@ pub fn execute(cli: Cli) -> Result<()> {
                             selected: None,
                             depth: None,
                             index_in_parent: Some(i as i32),
+                            index: None,
                             parent_id: None,
                             children: None,
                             children_count: None,
@@ -569,6 +600,12 @@ pub fn execute(cli: Cli) -> Result<()> {
 fn target_from_click(args: ClickArgs) -> Result<Target> {
     if let Some(coords) = args.coords {
         return Ok(Target::Point(parse_point(&coords)?));
+    }
+    if let Some(index) = args.index {
+        return Ok(Target::Query {
+            query: format!("index={index}"),
+            snapshot: args.snapshot,
+        });
     }
     let query = args
         .query
@@ -678,6 +715,8 @@ fn tool_catalog() -> Value {
         "run",
         "sleep",
         "clean",
+        "doctor",
+        "mcp",
         "tools",
         "completions"
     ])
@@ -756,8 +795,10 @@ mod tests {
             query: None,
             coords: Some("10,20".to_string()),
             snapshot: None,
+            index: None,
             button: "right".to_string(),
             count: 3,
+            background: false,
         };
 
         let (_, button, count) = click_request(args).expect("click args should parse");

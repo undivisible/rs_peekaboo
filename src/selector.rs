@@ -219,6 +219,7 @@ mod tests {
             selected: None,
             depth: None,
             index_in_parent: None,
+            index: None,
             parent_id: None,
             children: None,
             children_count: None,

@@ -84,6 +84,55 @@ pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {
     macos_legacy::click(point, button, count)
 }
 
+/// Prefer AX/background action for element targets; fall back to coords.
+pub fn click_element(element: &UiElement, button: &str, count: u32) -> Result<Value> {
+    match get_mode() {
+        ComputerUseMode::Native | ComputerUseMode::Hybrid => {
+            macos_ax::click_element(element, button, count)
+        }
+        _ => {
+            let point = element
+                .bounds
+                .map(|b| b.center())
+                .ok_or_else(|| crate::PeekabooError::TargetNotFound(element.id.clone()))?;
+            macos_legacy::click(point, button, count)
+        }
+    }
+}
+
+pub fn doctor(mode: ComputerUseMode, backend: &str) -> Value {
+    use serde_json::json;
+    let permissions = permissions();
+    let accessibility = permissions
+        .get("accessibility")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let screen = permissions
+        .get("screen_recording")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    json!({
+        "platform": "macos",
+        "mode": mode,
+        "backend": backend,
+        "permissions": permissions,
+        "capabilities": {
+            "background_click": true,
+            "ax_tree": true,
+            "element_index": true,
+            "window_capture": true,
+            "mcp": true
+        },
+        "tools": {
+            "screencapture": std::path::Path::new("/usr/sbin/screencapture").exists()
+                || crate::platform::process::probe("screencapture", &["-help"]),
+            "osascript": crate::platform::process::probe("osascript", &["-e", "return 1"]),
+            "pbpaste": crate::platform::process::probe("pbpaste", &[])
+        },
+        "ok": accessibility && screen
+    })
+}
+
 pub fn move_cursor(point: Point) -> Result<Value> {
     macos_cg::move_cursor(point)
 }

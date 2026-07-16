@@ -7,7 +7,20 @@ fn tools_should_print_catalog() {
     cmd.arg("tools")
         .assert()
         .success()
-        .stdout(predicate::str::contains("click"));
+        .stdout(predicate::str::contains("click"))
+        .stdout(predicate::str::contains("doctor"))
+        .stdout(predicate::str::contains("mcp"));
+}
+
+#[test]
+fn doctor_should_report_platform_health() {
+    let mut cmd = Command::cargo_bin("rs-peekaboo").unwrap();
+    cmd.args(["--json", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ok\":"))
+        .stdout(predicate::str::contains("capabilities"))
+        .stdout(predicate::str::contains("permissions"));
 }
 
 #[test]

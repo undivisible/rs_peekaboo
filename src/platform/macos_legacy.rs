@@ -360,6 +360,7 @@ pub fn parse_snapshot_line(line: &str) -> Option<UiElement> {
             window: None,
             bounds: None,
             state: json!({ "frontmost": frontmost.eq_ignore_ascii_case("true") }),
+            index: None,
         }),
         ["window", app, title, x, y, width, height, minimized] => Some(UiElement {
             id: format!("window:{app}:{title}"),
@@ -374,6 +375,7 @@ pub fn parse_snapshot_line(line: &str) -> Option<UiElement> {
                 height: height.parse().ok()?,
             }),
             state: json!({ "minimized": minimized.eq_ignore_ascii_case("true") }),
+            index: None,
         }),
         _ => None,
     }
@@ -497,6 +499,7 @@ mod tests {
                 height: 100,
             }),
             state: json!({}),
+            index: None,
         }
     }
 
@@ -557,6 +560,7 @@ mod tests {
             window: Some("Inbox".to_string()),
             bounds: None,
             state: json!({}),
+            index: None,
         };
         assert_eq!(
             element_ui_reference(&element),

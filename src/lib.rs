@@ -2,6 +2,7 @@ pub mod automation;
 pub mod cache;
 pub mod cli;
 pub mod error;
+pub mod mcp;
 pub mod models;
 pub mod platform;
 pub mod selector;

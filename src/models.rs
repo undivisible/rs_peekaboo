@@ -102,12 +102,27 @@ pub struct UiElement {
     pub window: Option<String>,
     pub bounds: Option<Bounds>,
     pub state: Value,
+    /// Stable 0-based index within a snapshot for agent targeting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub snapshot_id: String,
     pub elements: Vec<UiElement>,
+}
+
+/// Health / capability report for agent preflight.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HealthReport {
+    pub platform: String,
+    pub mode: ComputerUseMode,
+    pub backend: String,
+    pub permissions: Value,
+    pub capabilities: Value,
+    pub tools: Value,
+    pub ok: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -241,6 +256,9 @@ pub struct UiNode {
     pub depth: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_in_parent: Option<i32>,
+    /// Stable 0-based index within a snapshot for agent targeting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -264,11 +282,16 @@ impl From<&UiNode> for UiElement {
         Self {
             id: node.id.clone(),
             role: node.role.clone(),
-            label: node.title.clone().unwrap_or_default(),
+            label: node
+                .title
+                .clone()
+                .or_else(|| node.label.clone())
+                .unwrap_or_default(),
             app: node.app.clone(),
             window: node.window.clone(),
             bounds: node.bounds,
             state: node.state.clone(),
+            index: node.index,
         }
     }
 }
@@ -304,6 +327,7 @@ impl From<UiElement> for UiNode {
             selected: None,
             depth: None,
             index_in_parent: None,
+            index: el.index,
             parent_id: None,
             children: None,
             children_count: None,
@@ -313,6 +337,20 @@ impl From<UiElement> for UiNode {
             source: vec!["legacy".into()],
             state: el.state,
         }
+    }
+}
+
+/// Assign stable 0-based indices to a flat element list.
+pub fn assign_element_indices(elements: &mut [UiElement]) {
+    for (i, element) in elements.iter_mut().enumerate() {
+        element.index = Some(i as u32);
+    }
+}
+
+/// Assign stable 0-based indices to a flat node list.
+pub fn assign_node_indices(nodes: &mut [UiNode]) {
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.index = Some(i as u32);
     }
 }
 
@@ -482,11 +520,42 @@ mod tests {
                 height: 10,
             }),
             state: serde_json::json!({}),
+            index: Some(3),
         };
         let node = UiNode::from(el);
         assert_eq!(node.backend, "legacy");
         assert_eq!(node.source, vec!["legacy"]);
         assert_eq!(node.title, Some("Click me".into()));
         assert_eq!(node.role, "button");
+        assert_eq!(node.index, Some(3));
+    }
+
+    #[test]
+    fn assign_element_indices_sets_stable_order() {
+        let mut elements = vec![
+            UiElement {
+                id: "a".into(),
+                role: "button".into(),
+                label: "A".into(),
+                app: "App".into(),
+                window: None,
+                bounds: None,
+                state: serde_json::json!({}),
+                index: None,
+            },
+            UiElement {
+                id: "b".into(),
+                role: "button".into(),
+                label: "B".into(),
+                app: "App".into(),
+                window: None,
+                bounds: None,
+                state: serde_json::json!({}),
+                index: None,
+            },
+        ];
+        assign_element_indices(&mut elements);
+        assert_eq!(elements[0].index, Some(0));
+        assert_eq!(elements[1].index, Some(1));
     }
 }

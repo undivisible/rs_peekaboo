@@ -99,6 +99,7 @@ pub fn ui_elements(app: Option<&str>) -> Result<Vec<UiElement>> {
             window: Some(title),
             bounds,
             state: json!({ "window_id": window_id, "pid": pid }),
+            index: None,
         });
     }
     Ok(elements)
@@ -142,6 +143,52 @@ pub fn grant_permissions() -> Result<Value> {
         "note": "Install xdotool, grim/scrot, and wl-clipboard/xclip; grant desktop access in your compositor session.",
         "platform": "linux"
     }))
+}
+
+pub fn click_element(element: &UiElement, button: &str, count: u32) -> Result<Value> {
+    let point = element
+        .bounds
+        .map(|b| b.center())
+        .ok_or_else(|| PeekabooError::TargetNotFound(element.id.clone()))?;
+    let mut value = click(point, button, count)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("target".into(), json!(element.id));
+        obj.insert("background".into(), json!(false));
+        obj.insert("method".into(), json!("coords"));
+    }
+    Ok(value)
+}
+
+pub fn doctor(mode: crate::ComputerUseMode, backend: &str) -> Value {
+    let permissions = permissions();
+    let accessibility = permissions
+        .get("accessibility")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let screen = permissions
+        .get("screen_recording")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    json!({
+        "platform": "linux",
+        "mode": mode,
+        "backend": backend,
+        "permissions": permissions,
+        "capabilities": {
+            "background_click": false,
+            "ax_tree": false,
+            "element_index": true,
+            "window_capture": true,
+            "mcp": true
+        },
+        "tools": {
+            "xdotool": process::probe("xdotool", &["--version"]),
+            "grim": process::probe("grim", &["--version"]),
+            "scrot": process::probe("scrot", &["--version"]),
+            "wmctrl": process::probe("wmctrl", &["-m"])
+        },
+        "ok": accessibility && screen
+    })
 }
 
 pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {

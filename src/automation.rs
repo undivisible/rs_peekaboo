@@ -12,6 +12,8 @@ use tempfile::Builder;
 #[derive(Clone, Debug)]
 pub struct PeekabooConfig {
     pub mode: ComputerUseMode,
+    /// Prefer AX/background actions that avoid focus steal when possible.
+    pub background: bool,
 }
 
 impl Default for PeekabooConfig {
@@ -21,6 +23,7 @@ impl Default for PeekabooConfig {
             mode: ComputerUseMode::Hybrid,
             #[cfg(not(target_os = "macos"))]
             mode: ComputerUseMode::Legacy,
+            background: false,
         }
     }
 }
@@ -64,6 +67,24 @@ impl Peekaboo {
     }
 
     pub fn resolve_selector(&self, query: &str, snapshot_id: Option<&str>) -> Result<UiNode> {
+        // Bare `index=N` (or just a decimal) targets snapshot element by stable index.
+        if let Some(index) = parse_index_query(query) {
+            let snapshot = if let Some(sid) = snapshot_id {
+                cache::load_snapshot(sid)?
+            } else {
+                Snapshot {
+                    snapshot_id: "live".to_string(),
+                    elements: self.ui_elements(None)?,
+                }
+            };
+            return snapshot
+                .elements
+                .into_iter()
+                .find(|el| el.index == Some(index))
+                .map(UiNode::from)
+                .ok_or_else(|| PeekabooError::TargetNotFound(format!("index={index}")));
+        }
+
         let selector = Selector::parse(query)?;
         let snapshot = if let Some(sid) = snapshot_id {
             cache::load_snapshot(sid)?
@@ -140,7 +161,8 @@ impl Peekaboo {
             let _ = self.image(mode, path, retina)?;
         }
         let snapshot_id = cache::new_snapshot_id();
-        let elements = self.ui_elements(app)?;
+        let mut elements = self.ui_elements(app)?;
+        assign_element_indices(&mut elements);
         let snapshot = Snapshot {
             snapshot_id,
             elements,
@@ -150,7 +172,31 @@ impl Peekaboo {
     }
 
     pub fn ui_elements(&self, app_filter: Option<&str>) -> Result<Vec<UiElement>> {
-        backend::ui_elements(app_filter)
+        let mut elements = backend::ui_elements(app_filter)?;
+        assign_element_indices(&mut elements);
+        Ok(elements)
+    }
+
+    /// Capture the primary window of an app by name (window-scoped image).
+    pub fn image_app(
+        &self,
+        app: &str,
+        path: Option<PathBuf>,
+        retina: bool,
+    ) -> Result<ImageCapture> {
+        let elements = self.ui_elements(Some(app))?;
+        let bounds = elements
+            .iter()
+            .find(|el| el.role.eq_ignore_ascii_case("window") || el.role.eq_ignore_ascii_case("AXWindow"))
+            .and_then(|el| el.bounds)
+            .or_else(|| elements.iter().find_map(|el| el.bounds))
+            .ok_or_else(|| PeekabooError::TargetNotFound(format!("window for app {app}")))?;
+        self.image_region(bounds, path, retina)
+    }
+
+    /// Health/capability report for agent preflight.
+    pub fn doctor(&self) -> Result<Value> {
+        Ok(backend::doctor(self.config.mode, self.resolve_backend()))
     }
 
     pub fn list_apps(&self) -> Result<Value> {
@@ -180,6 +226,24 @@ impl Peekaboo {
     }
 
     pub fn click(&self, target: Target, button: &str, count: u32) -> Result<Value> {
+        self.click_with_options(target, button, count, self.config.background)
+    }
+
+    pub fn click_with_options(
+        &self,
+        target: Target,
+        button: &str,
+        count: u32,
+        background: bool,
+    ) -> Result<Value> {
+        if background {
+            if let Ok(element) = self.resolve_element(target.clone()) {
+                if let Ok(value) = backend::click_element(&UiElement::from(&element), button, count)
+                {
+                    return Ok(value);
+                }
+            }
+        }
         let point = self.resolve_target_point(target)?;
         backend::click(point, button, count)
     }
@@ -318,11 +382,15 @@ impl Peekaboo {
                     args.get("delay_ms").and_then(Value::as_u64),
                 )
             }
-            "click" => self.click(
+            "click" => self.click_with_options(
                 run_target(&args)?,
                 args.get("button").and_then(Value::as_str).unwrap_or("left"),
                 args.get("count").and_then(Value::as_u64).unwrap_or(1) as u32,
+                args.get("background")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(self.config.background),
             ),
+            "doctor" => self.doctor(),
             "move" => self.move_cursor(run_target(&args)?),
             "paste" => self.paste(required_str(&args, "text")?),
             "scroll" => self.scroll(
@@ -457,6 +525,17 @@ pub enum Target {
         snapshot: Option<String>,
     },
     Element(UiNode),
+}
+
+fn parse_index_query(query: &str) -> Option<u32> {
+    let q = query.trim();
+    if let Some(rest) = q.strip_prefix("index=") {
+        return rest.trim_matches('"').parse().ok();
+    }
+    if q.chars().all(|c| c.is_ascii_digit()) && !q.is_empty() {
+        return q.parse().ok();
+    }
+    None
 }
 
 pub fn parse_point(value: &str) -> Result<Point> {
@@ -682,6 +761,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_index_query_should_accept_index_and_bare_number() {
+        assert_eq!(parse_index_query("index=3"), Some(3));
+        assert_eq!(parse_index_query("12"), Some(12));
+        assert_eq!(parse_index_query("role=button"), None);
+    }
+
+    #[test]
     fn split_keys_should_accept_commas_and_pluses() {
         assert_eq!(split_keys("cmd,shift+t"), vec!["cmd", "shift", "t"]);
     }
@@ -726,6 +812,7 @@ mod tests {
                 window: None,
                 bounds: None,
                 state: serde_json::json!({}),
+                index: Some(0),
             },
             UiElement {
                 id: "b".to_string(),
@@ -735,6 +822,7 @@ mod tests {
                 window: None,
                 bounds: None,
                 state: serde_json::json!({}),
+                index: Some(1),
             },
         ];
 

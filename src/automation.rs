@@ -187,7 +187,9 @@ impl Peekaboo {
         let elements = self.ui_elements(Some(app))?;
         let bounds = elements
             .iter()
-            .find(|el| el.role.eq_ignore_ascii_case("window") || el.role.eq_ignore_ascii_case("AXWindow"))
+            .find(|el| {
+                el.role.eq_ignore_ascii_case("window") || el.role.eq_ignore_ascii_case("AXWindow")
+            })
             .and_then(|el| el.bounds)
             .or_else(|| elements.iter().find_map(|el| el.bounds))
             .ok_or_else(|| PeekabooError::TargetNotFound(format!("window for app {app}")))?;

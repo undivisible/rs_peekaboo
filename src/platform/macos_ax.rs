@@ -614,11 +614,7 @@ pub fn click(point: Point, _button: &str, _count: u32) -> Result<Value> {
 }
 
 /// Background-friendly click: AXPress when element has bounds/actions, no focus steal.
-pub fn click_element(
-    element: &crate::UiElement,
-    button: &str,
-    count: u32,
-) -> Result<Value> {
+pub fn click_element(element: &crate::UiElement, button: &str, count: u32) -> Result<Value> {
     // Prefer AX action via System Events without activating the app.
     // ponytail: full FocusGuard lease needs private APIs; AXPress-only is enough for most agents.
     let action = if button == "right" {

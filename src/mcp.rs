@@ -150,19 +150,29 @@ fn tool_defs() -> Value {
 fn call_tool(peekaboo: &Peekaboo, name: &str, args: &Value) -> Result<Value> {
     match name {
         "doctor" => peekaboo.doctor(),
-        "see" => Ok(serde_json::to_value(peekaboo.see(
-            args.get("app").and_then(Value::as_str),
-            ImageMode::parse_or_err(args.get("mode").and_then(Value::as_str).unwrap_or("screen"))?,
-            args.get("path").and_then(Value::as_str).map(std::path::PathBuf::from),
-            args.get("retina").and_then(Value::as_bool).unwrap_or(false),
-        )?)?),
+        "see" => Ok(serde_json::to_value(
+            peekaboo.see(
+                args.get("app").and_then(Value::as_str),
+                ImageMode::parse_or_err(
+                    args.get("mode").and_then(Value::as_str).unwrap_or("screen"),
+                )?,
+                args.get("path")
+                    .and_then(Value::as_str)
+                    .map(std::path::PathBuf::from),
+                args.get("retina").and_then(Value::as_bool).unwrap_or(false),
+            )?,
+        )?),
         "image" => {
             if let Some(app) = args.get("app").and_then(Value::as_str) {
-                return Ok(serde_json::to_value(peekaboo.image_app(
-                    app,
-                    args.get("path").and_then(Value::as_str).map(std::path::PathBuf::from),
-                    args.get("retina").and_then(Value::as_bool).unwrap_or(false),
-                )?)?);
+                return Ok(serde_json::to_value(
+                    peekaboo.image_app(
+                        app,
+                        args.get("path")
+                            .and_then(Value::as_str)
+                            .map(std::path::PathBuf::from),
+                        args.get("retina").and_then(Value::as_bool).unwrap_or(false),
+                    )?,
+                )?);
             }
             if let Some(region) = args.get("region") {
                 let bounds = crate::Bounds {
@@ -171,17 +181,27 @@ fn call_tool(peekaboo: &Peekaboo, name: &str, args: &Value) -> Result<Value> {
                     width: region.get("width").and_then(Value::as_i64).unwrap_or(0),
                     height: region.get("height").and_then(Value::as_i64).unwrap_or(0),
                 };
-                return Ok(serde_json::to_value(peekaboo.image_region(
-                    bounds,
-                    args.get("path").and_then(Value::as_str).map(std::path::PathBuf::from),
-                    args.get("retina").and_then(Value::as_bool).unwrap_or(false),
-                )?)?);
+                return Ok(serde_json::to_value(
+                    peekaboo.image_region(
+                        bounds,
+                        args.get("path")
+                            .and_then(Value::as_str)
+                            .map(std::path::PathBuf::from),
+                        args.get("retina").and_then(Value::as_bool).unwrap_or(false),
+                    )?,
+                )?);
             }
-            Ok(serde_json::to_value(peekaboo.image(
-                ImageMode::parse_or_err(args.get("mode").and_then(Value::as_str).unwrap_or("screen"))?,
-                args.get("path").and_then(Value::as_str).map(std::path::PathBuf::from),
-                args.get("retina").and_then(Value::as_bool).unwrap_or(false),
-            )?)?)
+            Ok(serde_json::to_value(
+                peekaboo.image(
+                    ImageMode::parse_or_err(
+                        args.get("mode").and_then(Value::as_str).unwrap_or("screen"),
+                    )?,
+                    args.get("path")
+                        .and_then(Value::as_str)
+                        .map(std::path::PathBuf::from),
+                    args.get("retina").and_then(Value::as_bool).unwrap_or(false),
+                )?,
+            )?)
         }
         "list_apps" => peekaboo.list_apps(),
         "list_windows" => peekaboo.list_windows(),
@@ -278,14 +298,20 @@ fn call_tool(peekaboo: &Peekaboo, name: &str, args: &Value) -> Result<Value> {
             args.get("title").and_then(Value::as_str),
             None,
         ),
-        "shell" => Ok(serde_json::to_value(peekaboo.shell(
-            args.get("command")
-                .and_then(Value::as_str)
-                .ok_or(PeekabooError::MissingArgument("command"))?,
-            args.get("cwd").and_then(Value::as_str).map(std::path::Path::new),
-        )?)?),
+        "shell" => Ok(serde_json::to_value(
+            peekaboo.shell(
+                args.get("command")
+                    .and_then(Value::as_str)
+                    .ok_or(PeekabooError::MissingArgument("command"))?,
+                args.get("cwd")
+                    .and_then(Value::as_str)
+                    .map(std::path::Path::new),
+            )?,
+        )?),
         "permissions" => Ok(peekaboo.permissions()),
-        other => Err(PeekabooError::UnsupportedRunCommand(format!("mcp tool:{other}"))),
+        other => Err(PeekabooError::UnsupportedRunCommand(format!(
+            "mcp tool:{other}"
+        ))),
     }
 }
 

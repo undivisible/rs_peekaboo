@@ -116,5 +116,6 @@ fn release_workflow_should_package_notices_and_require_publish() {
     assert!(workflow.contains("cargo bundle-licenses --format yaml --output THIRDPARTY.yml"));
     assert!(workflow.contains("cp LICENSE THIRDPARTY.yml"));
     assert!(workflow.contains("Copy-Item \"LICENSE\", \"THIRDPARTY.yml\""));
+    assert!(workflow.contains("cargo info \"rs_peekaboo@${VERSION}\""));
     assert!(!workflow.contains("continue-on-error"));
 }

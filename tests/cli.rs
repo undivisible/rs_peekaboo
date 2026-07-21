@@ -108,3 +108,13 @@ fn json_should_reject_invalid_snapshot_id_on_clean() {
             "\"error\": \"invalid snapshot id: ../etc/passwd\"",
         ));
 }
+
+#[test]
+fn release_workflow_should_package_notices_and_require_publish() {
+    let workflow = include_str!("../.github/workflows/release.yml");
+    assert!(workflow.contains("cargo install cargo-bundle-licenses --version 4.2.0 --locked"));
+    assert!(workflow.contains("cargo bundle-licenses --format yaml --output THIRDPARTY.yml"));
+    assert!(workflow.contains("cp LICENSE THIRDPARTY.yml"));
+    assert!(workflow.contains("Copy-Item \"LICENSE\", \"THIRDPARTY.yml\""));
+    assert!(!workflow.contains("continue-on-error"));
+}

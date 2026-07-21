@@ -1,7 +1,6 @@
 use crate::PeekabooError;
 use crate::Result;
 use crate::models::{Bounds, Direction, ImageMode, Point, UiElement};
-use crate::platform::process;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -939,6 +938,6 @@ mod tests {
         );
         assert_eq!(input["region"]["width"], 1);
         assert_eq!(input["region"]["height"], 1);
-        assert_eq!(input["path"], path.to_string_lossy());
+        assert_eq!(input["path"], path.to_string_lossy().as_ref());
     }
 }

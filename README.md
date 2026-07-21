@@ -145,7 +145,7 @@ rs-peekaboo click --index 0 --snapshot snap-... --background --json
 
 ## Library
 
-```rust
+```rust,no_run
 use rs_peekaboo::automation::Target;
 use rs_peekaboo::{Bounds, Direction, ImageMode, Peekaboo, Point};
 
@@ -166,15 +166,32 @@ fn main() -> rs_peekaboo::Result<()> {
     let elements = peekaboo.ui_elements(None)?;
 
     peekaboo.click(Target::Point(Point { x: 500, y: 300 }), "left", 1)?;
-    peekaboo.type_text("hello", false, false, None)?;
+    peekaboo.type_text("hello", false, false, None, None)?;
     peekaboo.hotkey(&["cmd", "l"])?;
     peekaboo.scroll(Direction::Down, 3)?;
-    peekaboo.window("focus", Some("Safari"), None)?;
+    peekaboo.window("focus", Some("Safari"), None, None)?;
     peekaboo.app("launch", Some("Safari"))?;
     peekaboo.menu("list", "Safari", None, None)?;
     peekaboo.clipboard_write("copied")?;
 
     println!("{} {} {}", image.bytes, region.bytes, elements.len());
+    Ok(())
+}
+```
+
+The v0.2.4 source shapes and method signatures are available through a
+namespaced compatibility facade. Migrating a v0.2.4 caller requires changing
+its imports; the current root API remains unchanged.
+
+```rust,no_run
+use rs_peekaboo::compat::{Peekaboo, Target};
+use rs_peekaboo::{ImageMode, Point};
+
+fn main() -> rs_peekaboo::Result<()> {
+    let peekaboo = Peekaboo;
+    let image = peekaboo.image(ImageMode::Screen, None, true)?;
+    peekaboo.click(Target::Point(Point { x: 500, y: 300 }), "left", 1)?;
+    println!("{}", image.bytes);
     Ok(())
 }
 ```
@@ -258,4 +275,11 @@ shelling out to AppleScript helpers.
 
 ## License
 
-MPL-2.0.
+ISC.
+
+## Acknowledgements
+
+`rs_peekaboo` began as an independent Rust rewrite of
+[Peekaboo](https://github.com/openclaw/Peekaboo). Its background driver and MCP
+compatibility surface also draws on public interface patterns from
+[Cua Driver](https://github.com/trycua/cua/tree/main/libs/cua-driver).

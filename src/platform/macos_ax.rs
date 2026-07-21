@@ -485,6 +485,11 @@ pub fn check_accessibility() -> bool {
 
 /// Return UI nodes from native AX tree traversal.
 pub fn ui_elements(app_filter: Option<&str>) -> Result<Vec<UiNode>> {
+    if !check_accessibility() {
+        return Err(crate::PeekabooError::System(
+            "macOS accessibility permission is required".into(),
+        ));
+    }
     let pids = running_app_pids();
     let app_names: Vec<(i32, String)> = pids
         .iter()
@@ -655,6 +660,25 @@ pub fn click_element(element: &crate::UiElement, button: &str, count: u32) -> Re
         obj.insert("target".into(), serde_json::json!(element.id));
     }
     Ok(value)
+}
+
+pub fn click_element_strict(element: &crate::UiElement, button: &str, count: u32) -> Result<Value> {
+    let action = if button == "right" {
+        "AXShowMenu"
+    } else {
+        "AXPress"
+    };
+    let count = count.max(1);
+    for _ in 0..count {
+        super::macos_legacy::perform_action(element, action)?;
+    }
+    Ok(serde_json::json!({
+        "target": element.id,
+        "button": button,
+        "count": count,
+        "background": true,
+        "method": "ax"
+    }))
 }
 
 pub fn set_value(element: &UiNode, value: &str) -> Result<Value> {

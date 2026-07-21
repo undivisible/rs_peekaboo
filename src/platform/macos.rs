@@ -12,6 +12,16 @@ use std::path::Path;
 
 static CURRENT_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
+fn hybrid_fallback<T>(
+    native: impl FnOnce() -> Result<T>,
+    legacy: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    match native() {
+        Ok(value) => Ok(value),
+        Err(native_error) => legacy().map_err(|_| native_error),
+    }
+}
+
 pub fn get_mode() -> ComputerUseMode {
     match CURRENT_MODE.load(std::sync::atomic::Ordering::Relaxed) {
         0 => ComputerUseMode::Hybrid,
@@ -48,11 +58,25 @@ pub fn capture_image(
 // ── UI elements ────────────────────────────────────────────────────────
 
 pub fn ui_elements(app_filter: Option<&str>) -> Result<Vec<UiElement>> {
-    match get_mode() {
-        ComputerUseMode::Native | ComputerUseMode::Hybrid => {
+    ui_elements_with_mode(app_filter, get_mode())
+}
+
+pub fn ui_elements_with_mode(
+    app_filter: Option<&str>,
+    mode: ComputerUseMode,
+) -> Result<Vec<UiElement>> {
+    match mode {
+        ComputerUseMode::Native => {
             let nodes = macos_ax::ui_elements(app_filter)?;
             Ok(nodes.into_iter().map(UiElement::from).collect())
         }
+        ComputerUseMode::Hybrid => hybrid_fallback(
+            || {
+                macos_ax::ui_elements(app_filter)
+                    .map(|nodes| nodes.into_iter().map(UiElement::from).collect())
+            },
+            || macos_legacy::ui_elements(app_filter),
+        ),
         ComputerUseMode::Legacy | ComputerUseMode::Coords => macos_legacy::ui_elements(app_filter),
         ComputerUseMode::Vision => Ok(Vec::new()),
     }
@@ -86,10 +110,21 @@ pub fn click(point: Point, button: &str, count: u32) -> Result<Value> {
 
 /// Prefer AX/background action for element targets; fall back to coords.
 pub fn click_element(element: &UiElement, button: &str, count: u32) -> Result<Value> {
-    match get_mode() {
-        ComputerUseMode::Native | ComputerUseMode::Hybrid => {
-            macos_ax::click_element(element, button, count)
-        }
+    click_element_with_mode(element, button, count, get_mode())
+}
+
+pub fn click_element_with_mode(
+    element: &UiElement,
+    button: &str,
+    count: u32,
+    mode: ComputerUseMode,
+) -> Result<Value> {
+    match mode {
+        ComputerUseMode::Native => macos_ax::click_element_strict(element, button, count),
+        ComputerUseMode::Hybrid => hybrid_fallback(
+            || macos_ax::click_element_strict(element, button, count),
+            || click_element_with_mode(element, button, count, ComputerUseMode::Coords),
+        ),
         _ => {
             let point = element
                 .bounds
@@ -173,8 +208,34 @@ pub fn set_value(element: &UiElement, value: &str) -> Result<Value> {
     macos_legacy::set_value(element, value)
 }
 
+pub fn set_value_with_mode(element: &UiNode, value: &str, mode: ComputerUseMode) -> Result<Value> {
+    match mode {
+        ComputerUseMode::Native => macos_ax::set_value(element, value),
+        ComputerUseMode::Hybrid => hybrid_fallback(
+            || macos_ax::set_value(element, value),
+            || macos_legacy::set_value(&UiElement::from(element), value),
+        ),
+        _ => macos_legacy::set_value(&UiElement::from(element), value),
+    }
+}
+
 pub fn perform_action(element: &UiElement, action: &str) -> Result<Value> {
     macos_legacy::perform_action(element, action)
+}
+
+pub fn perform_action_with_mode(
+    element: &UiNode,
+    action: &str,
+    mode: ComputerUseMode,
+) -> Result<Value> {
+    match mode {
+        ComputerUseMode::Native => macos_ax::perform_action(element, action),
+        ComputerUseMode::Hybrid => hybrid_fallback(
+            || macos_ax::perform_action(element, action),
+            || macos_legacy::perform_action(&UiElement::from(element), action),
+        ),
+        _ => macos_legacy::perform_action(&UiElement::from(element), action),
+    }
 }
 
 // ── app / window / menu ────────────────────────────────────────────────
@@ -219,3 +280,30 @@ pub fn clipboard_write(text: &str) -> Result<Value> {
 pub use macos_legacy::{
     apple_string, element_process_name, element_ui_reference, parse_snapshot_line,
 };
+
+#[cfg(test)]
+mod dispatcher_tests {
+    use super::*;
+
+    #[test]
+    fn hybrid_uses_fallback_after_native_failure() {
+        assert_eq!(
+            hybrid_fallback(
+                || Err::<u8, _>(crate::PeekabooError::System("native".into())),
+                || Ok(7),
+            )
+            .unwrap(),
+            7
+        );
+    }
+
+    #[test]
+    fn hybrid_preserves_native_error_when_fallback_fails() {
+        let error = hybrid_fallback(
+            || Err::<u8, _>(crate::PeekabooError::System("native".into())),
+            || Err(crate::PeekabooError::System("legacy".into())),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "native");
+    }
+}

@@ -1,6 +1,9 @@
+#![doc = include_str!("../README.md")]
+
 pub mod automation;
 pub mod cache;
 pub mod cli;
+pub mod compat;
 pub mod error;
 pub mod mcp;
 pub mod models;

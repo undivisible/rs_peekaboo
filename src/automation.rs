@@ -48,8 +48,15 @@ impl Peekaboo {
         Self { config }
     }
 
+    pub fn effective_mode(&self) -> ComputerUseMode {
+        #[cfg(target_os = "macos")]
+        return self.config.mode;
+        #[cfg(not(target_os = "macos"))]
+        ComputerUseMode::Legacy
+    }
+
     pub fn resolve_backend(&self) -> &'static str {
-        match self.config.mode {
+        match self.effective_mode() {
             ComputerUseMode::Native => "native",
             ComputerUseMode::Hybrid => "hybrid",
             ComputerUseMode::Vision => "vision",
@@ -61,7 +68,7 @@ impl Peekaboo {
     pub fn backend_metadata(&self, fallbacks: Vec<String>) -> BackendMetadata {
         BackendMetadata {
             backend: self.resolve_backend().to_string(),
-            mode: self.config.mode,
+            mode: self.effective_mode(),
             fallbacks_used: fallbacks,
         }
     }
@@ -85,7 +92,6 @@ impl Peekaboo {
                 .ok_or_else(|| PeekabooError::TargetNotFound(format!("index={index}")));
         }
 
-        let selector = Selector::parse(query)?;
         let snapshot = if let Some(sid) = snapshot_id {
             cache::load_snapshot(sid)?
         } else {
@@ -94,6 +100,11 @@ impl Peekaboo {
                 elements: self.ui_elements(None)?,
             }
         };
+        if !query.contains('=') {
+            return resolve_query(&snapshot.elements, query).map(UiNode::from);
+        }
+
+        let selector = Selector::parse(query)?;
         let nodes: Vec<UiNode> = snapshot.elements.into_iter().map(UiNode::from).collect();
         selector
             .first_match(&nodes)
@@ -172,6 +183,9 @@ impl Peekaboo {
     }
 
     pub fn ui_elements(&self, app_filter: Option<&str>) -> Result<Vec<UiElement>> {
+        #[cfg(target_os = "macos")]
+        let mut elements = backend::ui_elements_with_mode(app_filter, self.config.mode)?;
+        #[cfg(not(target_os = "macos"))]
         let mut elements = backend::ui_elements(app_filter)?;
         assign_element_indices(&mut elements);
         Ok(elements)
@@ -198,7 +212,10 @@ impl Peekaboo {
 
     /// Health/capability report for agent preflight.
     pub fn doctor(&self) -> Result<Value> {
-        Ok(backend::doctor(self.config.mode, self.resolve_backend()))
+        Ok(backend::doctor(
+            self.effective_mode(),
+            self.resolve_backend(),
+        ))
     }
 
     pub fn list_apps(&self) -> Result<Value> {
@@ -240,8 +257,16 @@ impl Peekaboo {
     ) -> Result<Value> {
         if background {
             if let Ok(element) = self.resolve_element(target.clone()) {
-                if let Ok(value) = backend::click_element(&UiElement::from(&element), button, count)
-                {
+                #[cfg(target_os = "macos")]
+                let result = backend::click_element_with_mode(
+                    &UiElement::from(&element),
+                    button,
+                    count,
+                    self.config.mode,
+                );
+                #[cfg(not(target_os = "macos"))]
+                let result = backend::click_element(&UiElement::from(&element), button, count);
+                if let Ok(value) = result {
                     return Ok(value);
                 }
             }
@@ -294,15 +319,18 @@ impl Peekaboo {
 
     pub fn set_value(&self, target: Target, value: &str) -> Result<Value> {
         let element = self.resolve_element(target)?;
-        // convert UiNode to UiElement for backend compat
-        let el = UiElement::from(&element);
-        backend::set_value(&el, value)
+        #[cfg(target_os = "macos")]
+        return backend::set_value_with_mode(&element, value, self.config.mode);
+        #[cfg(not(target_os = "macos"))]
+        backend::set_value(&UiElement::from(&element), value)
     }
 
     pub fn perform_action(&self, target: Target, action: &str) -> Result<Value> {
         let element = self.resolve_element(target)?;
-        let el = UiElement::from(&element);
-        backend::perform_action(&el, action)
+        #[cfg(target_os = "macos")]
+        return backend::perform_action_with_mode(&element, action, self.config.mode);
+        #[cfg(not(target_os = "macos"))]
+        backend::perform_action(&UiElement::from(&element), action)
     }
 
     pub fn app(&self, action: &str, name: Option<&str>) -> Result<Value> {
@@ -586,7 +614,6 @@ fn run_target(args: &Value) -> Result<Target> {
     })
 }
 
-#[allow(dead_code)]
 fn resolve_query(elements: &[UiElement], query: &str) -> Result<UiElement> {
     if let Some(element) = elements.iter().find(|element| element.id == query) {
         return Ok(element.clone());
@@ -774,6 +801,16 @@ mod tests {
         assert_eq!(split_keys("cmd,shift+t"), vec!["cmd", "shift", "t"]);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn instance_mode_controls_macos_ui_dispatch() {
+        let peekaboo = Peekaboo::with_config(PeekabooConfig {
+            mode: ComputerUseMode::Vision,
+            background: false,
+        });
+        assert!(peekaboo.ui_elements(None).unwrap().is_empty());
+    }
+
     #[test]
     fn required_str_should_require_argument() {
         assert!(required_str(&json!({}), "text").is_err());
@@ -781,6 +818,26 @@ mod tests {
             required_str(&json!({ "text": "hi" }), "text").unwrap(),
             "hi"
         );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn unsupported_modes_resolve_to_legacy() {
+        for mode in [
+            ComputerUseMode::Hybrid,
+            ComputerUseMode::Native,
+            ComputerUseMode::Vision,
+            ComputerUseMode::Coords,
+        ] {
+            let peekaboo = Peekaboo::with_config(PeekabooConfig {
+                mode,
+                background: false,
+            });
+            assert_eq!(peekaboo.effective_mode(), ComputerUseMode::Legacy);
+            assert_eq!(peekaboo.resolve_backend(), "legacy");
+            assert_eq!(peekaboo.doctor().unwrap()["mode"], "legacy");
+            assert_eq!(peekaboo.doctor().unwrap()["backend"], "legacy");
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "rs_peekaboo"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 rust-version = "1.85"
 license = "ISC"
@@ -11,6 +11,7 @@ homepage = "https://github.com/undivisible/rs_peekaboo"
 documentation = "https://docs.rs/rs_peekaboo"
 keywords = ["automation", "accessibility", "cli", "computer-use", "cross-platform"]
 categories = ["command-line-utilities"]
+exclude = ["docs/superpowers/**"]
 
 [[bin]]
 name = "rs-peekaboo"

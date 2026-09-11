@@ -382,13 +382,19 @@ pub fn parse_snapshot_line(line: &str) -> Option<UiElement> {
 }
 
 fn snapshot_script() -> &'static str {
+    // Indexed loops: on macOS 12, `repeat with p in (processes whose ...)` leaves `p`
+    // as a reference, so `windows of p` resolves incorrectly and yields empty results.
     r#"tell application "System Events"
 set out to ""
-repeat with p in (application processes whose background only is false)
+set procList to (application processes whose background only is false)
+repeat with i from 1 to count of procList
+set p to item i of procList
 set appName to name of p
 set frontValue to frontmost of p as text
 set out to out & "app" & tab & appName & tab & frontValue & "\n"
-repeat with w in windows of p
+set winList to windows of p
+repeat with j from 1 to count of winList
+set w to item j of winList
 try
 set winName to name of w
 set posValue to position of w

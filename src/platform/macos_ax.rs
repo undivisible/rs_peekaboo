@@ -101,6 +101,18 @@ const kAXValueCGPointType: u32 = 1;
 const kAXValueCGSizeType: u32 = 2;
 const kAXValueCGRectType: u32 = 3;
 const kAXErrorSuccess: OSStatus = 0;
+const kAXErrorCannotComplete: OSStatus = -25204;
+const kAXErrorNotImplemented: OSStatus = -25208;
+const kAXErrorAPIDisabled: OSStatus = -25211;
+
+fn ax_error_name(status: OSStatus) -> &'static str {
+    match status {
+        kAXErrorCannotComplete => "kAXErrorCannotComplete",
+        kAXErrorNotImplemented => "kAXErrorNotImplemented",
+        kAXErrorAPIDisabled => "kAXErrorAPIDisabled",
+        _ => "AXError",
+    }
+}
 
 // ── CF helpers ─────────────────────────────────────────────────────────
 
@@ -437,10 +449,12 @@ fn build_tree_recursive(
 
 // ── AX window tree ─────────────────────────────────────────────────────
 
-fn get_windows_for_app(pid: i32, app_name: &str) -> Vec<UiNode> {
+fn get_windows_for_app(pid: i32, app_name: &str) -> Result<Vec<UiNode>> {
     let app_element = unsafe { AXUIElementCreateApplication(pid) };
     if app_element.is_null() {
-        return Vec::new();
+        return Err(crate::PeekabooError::System(format!(
+            "AXUIElementCreateApplication failed for {app_name} (pid {pid})"
+        )));
     }
 
     let key = cf_string("AXWindows");
@@ -450,7 +464,12 @@ fn get_windows_for_app(pid: i32, app_name: &str) -> Vec<UiNode> {
 
     if status != kAXErrorSuccess || array.is_null() {
         release(app_element);
-        return Vec::new();
+        // Surface AX failures so hybrid mode can fall back to legacy instead of
+        // reporting an empty success snapshot.
+        return Err(crate::PeekabooError::System(format!(
+            "AXUIElementCopyAttributeValue(AXWindows) failed for {app_name} (pid {pid}): {} ({status})",
+            ax_error_name(status)
+        )));
     }
 
     let count = cf_array_count(array);
@@ -473,7 +492,7 @@ fn get_windows_for_app(pid: i32, app_name: &str) -> Vec<UiNode> {
     }
     release(array);
     release(app_element);
-    nodes
+    Ok(nodes)
 }
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -515,7 +534,7 @@ pub fn ui_elements(app_filter: Option<&str>) -> Result<Vec<UiNode>> {
 
     let mut all_nodes = Vec::new();
     for (pid, name) in app_names {
-        all_nodes.append(&mut get_windows_for_app(pid, &name));
+        all_nodes.append(&mut get_windows_for_app(pid, &name)?);
     }
     Ok(all_nodes)
 }

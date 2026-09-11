@@ -122,7 +122,9 @@ pub fn click_element_with_mode(
     match mode {
         ComputerUseMode::Native => macos_ax::click_element_strict(element, button, count),
         ComputerUseMode::Hybrid => hybrid_fallback(
-            || macos_ax::click_element_strict(element, button, count),
+            // click_element tries AXPress then coords; osascript timeouts become Err
+            // so Hybrid can still recover via the Coords arm below.
+            || macos_ax::click_element(element, button, count),
             || click_element_with_mode(element, button, count, ComputerUseMode::Coords),
         ),
         _ => {

@@ -444,9 +444,11 @@ pub fn element_process_name(element: &UiElement) -> String {
 }
 
 pub fn element_ui_reference(element: &UiElement) -> String {
+    let element_name = element_selector_name(element);
+    // Prefer window-scoped references so System Events does not search the whole
+    // process UI tree (can hang indefinitely on macOS 12).
     if let Some(rest) = element.id.strip_prefix("window:") {
         if let Some((_app, title)) = rest.split_once(':') {
-            let element_name = element_selector_name(element);
             return format!(
                 "UI element {} of window {}",
                 apple_string(&element_name),
@@ -454,10 +456,14 @@ pub fn element_ui_reference(element: &UiElement) -> String {
             );
         }
     }
-    format!(
-        "UI element {}",
-        apple_string(&element_selector_name(element))
-    )
+    if let Some(title) = element.window.as_deref().filter(|title| !title.is_empty()) {
+        return format!(
+            "UI element {} of window {}",
+            apple_string(&element_name),
+            apple_string(title)
+        );
+    }
+    format!("UI element {}", apple_string(&element_name))
 }
 
 fn element_selector_name(element: &UiElement) -> String {
@@ -482,8 +488,19 @@ fn is_generic_element_id(id: &str) -> bool {
     id.starts_with("win-") || id.is_empty()
 }
 
+/// Wall-clock budget for System Events / osascript.
+/// macOS 12 can block forever on `perform action` / UI element resolution;
+/// timing out lets Hybrid click fall back to `click at` coords.
+const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(5);
+
 fn osascript(script: &str) -> Result<ProcessOutput> {
-    process::run("osascript", &["-e", script], None)
+    process::run_with_timeout(
+        "osascript",
+        &["-e", script],
+        None,
+        None,
+        Some(OSASCRIPT_TIMEOUT),
+    )
 }
 
 #[cfg(test)]
@@ -571,6 +588,24 @@ mod tests {
         assert_eq!(
             element_ui_reference(&element),
             r#"UI element "Inbox" of window "Inbox""#
+        );
+    }
+
+    #[test]
+    fn element_ui_reference_should_scope_by_window_field_for_ax_ids() {
+        let element = UiElement {
+            id: "Mail-AXButton-3".to_string(),
+            role: "button".to_string(),
+            label: "Send".to_string(),
+            app: "Mail".to_string(),
+            window: Some("Inbox".to_string()),
+            bounds: None,
+            state: json!({}),
+            index: Some(3),
+        };
+        assert_eq!(
+            element_ui_reference(&element),
+            r#"UI element "Send" of window "Inbox""#
         );
     }
 }

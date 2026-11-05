@@ -32,7 +32,7 @@ pub fn capture_image(
     if mode != ImageMode::Screen {
         return Err(PeekabooError::UnsupportedPlatform("image mode"));
     }
-    if session() == Session::Wayland && process::probe("grim", &["--version"]) {
+    if session() == Session::Wayland && process::probe("grim", &["-h"]) {
         let mut args = Vec::new();
         if let Some(bounds) = region {
             args.push("-g".to_string());
@@ -146,7 +146,7 @@ pub fn permissions() -> Value {
     json!({
         "platform": "linux",
         "screen_recording": match session() {
-            Session::Wayland => process::probe("grim", &["--version"]),
+            Session::Wayland => process::probe("grim", &["-h"]),
             Session::X11 => process::probe("scrot", &["--version"]) || process::probe("import", &["-version"]),
             Session::Unknown => false,
         },
@@ -204,7 +204,7 @@ pub fn doctor(mode: crate::ComputerUseMode, backend: &str) -> Value {
         },
         "tools": {
             "xdotool": process::probe("xdotool", &["--version"]),
-            "grim": process::probe("grim", &["--version"]),
+            "grim": process::probe("grim", &["-h"]),
             "scrot": process::probe("scrot", &["--version"]),
             "wmctrl": process::probe("wmctrl", &["-m"])
         },

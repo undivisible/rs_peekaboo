@@ -6,4 +6,4 @@
 - Pass the output path and region to `grim` in the expected format.
 - Pass ImageMagick screenshot arguments separately, including signed crop offsets.
 
-Wayland monitor enumeration and interactive macOS and Windows desktop behavior remain unverified.
+Native Wayland monitor enumeration is not implemented. Interactive macOS and Windows desktop behavior remains unverified.

@@ -271,6 +271,9 @@ On Wayland, `list screens` reads outputs directly from the compositor. Logical
 `x`, `y`, `width`, and `height` are null when the compositor does not expose
 the xdg-output protocol. `buffer_scale` is an integer Wayland buffer scale,
 not necessarily the desktop's fractional scale; `mode` uses physical pixels.
+CI exercises a single output on headless Weston. Multiple monitors and
+interactive GNOME, KDE, and wlroots sessions have not been verified. Interactive
+macOS and Windows desktop behavior also remains unverified.
 
 ## Release 0.3.6 handoff
 
@@ -287,9 +290,6 @@ Immediately afterward, update the `undivisible/poke-around` lockfile to
 select `rs_peekaboo` 0.3.6, run its validation and platform CI, and land that
 lockfile update in its own commit. The current semver requirement already
 allows 0.3.6.
-
-Interactive macOS and Windows desktop behavior has not been verified by this
-release's CI matrix.
 
 ## Folk Around
 

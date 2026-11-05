@@ -116,6 +116,40 @@ fn release_workflow_should_package_notices_and_require_publish() {
     assert!(workflow.contains("cargo bundle-licenses --format yaml --output THIRDPARTY.yml"));
     assert!(workflow.contains("cp LICENSE THIRDPARTY.yml"));
     assert!(workflow.contains("Copy-Item \"LICENSE\", \"THIRDPARTY.yml\""));
-    assert!(workflow.contains("cargo info \"rs_peekaboo@${VERSION}\""));
     assert!(!workflow.contains("continue-on-error"));
+}
+
+#[cfg(unix)]
+#[test]
+fn release_publish_step_attempts_upload_and_propagates_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workflow = include_str!("../.github/workflows/release.yml");
+    let step = workflow
+        .split("- name: Publish to crates.io\n")
+        .nth(1)
+        .unwrap();
+    let command = step
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("run: "))
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let cargo = dir.path().join("cargo");
+    std::fs::write(
+        &cargo,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nexit \"$TEST_STATUS\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    for status in [0, 37] {
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", command])
+            .env("PATH", dir.path())
+            .env("TEST_STATUS", status.to_string())
+            .output()
+            .unwrap();
+        assert_eq!(output.stdout, b"publish --locked\n");
+        assert_eq!(output.status.code(), Some(status));
+    }
 }

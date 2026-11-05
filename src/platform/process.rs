@@ -66,9 +66,7 @@ pub fn run_status_with_timeout(
         command.stdin(Stdio::piped());
     }
     let mut child = command.spawn()?;
-    if let Some(input) = input
-        && let Some(mut stdin) = child.stdin.take()
-    {
+    if let Some((input, mut stdin)) = input.zip(child.stdin.take()) {
         stdin.write_all(input.as_bytes())?;
     }
 

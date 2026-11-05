@@ -661,9 +661,7 @@ pub fn validate_output_path(path: &Path) -> Result<PathBuf> {
     let canonical = canonicalize_output_path(&expanded)?;
 
     let text = path.to_string_lossy();
-    if (text == "~" || text.starts_with("~/"))
-        && let Some(home) = dirs::home_dir()
-    {
+    if let Some(home) = dirs::home_dir().filter(|_| text == "~" || text.starts_with("~/")) {
         let home_canonical = home.canonicalize().unwrap_or_else(|_| home.clone());
         if !canonical.starts_with(&home_canonical) {
             return Err(PeekabooError::System("path escapes home directory".into()));

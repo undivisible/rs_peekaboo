@@ -292,9 +292,7 @@ pub fn press(key: &str, count: u32, delay_ms: Option<u64>) -> Result<Value> {
     let count = count.max(1);
     for index in 0..count {
         process::run("xdotool", &["key", "--clearmodifiers", &key_name], None)?;
-        if index + 1 < count
-            && let Some(delay_ms) = delay_ms
-        {
+        if let Some(delay_ms) = delay_ms.filter(|_| index + 1 < count) {
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
     }

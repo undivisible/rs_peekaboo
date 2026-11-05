@@ -267,6 +267,11 @@ rs-peekaboo permissions status --json
 
 Shell execution is cross-platform and uses the host shell.
 
+On Wayland, `list screens` reads outputs directly from the compositor. Logical
+`x`, `y`, `width`, and `height` are null when the compositor does not expose
+the xdg-output protocol. `buffer_scale` is an integer Wayland buffer scale,
+not necessarily the desktop's fractional scale; `mode` uses physical pixels.
+
 ## Release 0.3.6 handoff
 
 Do not publish or push a release tag without the owner's explicit approval.
@@ -283,8 +288,8 @@ select `rs_peekaboo` 0.3.6, run its validation and platform CI, and land that
 lockfile update in its own commit. The current semver requirement already
 allows 0.3.6.
 
-Native Wayland monitor enumeration is not implemented. Interactive macOS and
-Windows desktop behavior has not been verified by this release's CI matrix.
+Interactive macOS and Windows desktop behavior has not been verified by this
+release's CI matrix.
 
 ## Folk Around
 

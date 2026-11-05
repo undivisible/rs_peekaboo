@@ -122,6 +122,10 @@ pub fn ui_elements(app: Option<&str>) -> Result<Vec<UiElement>> {
 }
 
 pub fn list_screens() -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    if session() == Session::Wayland {
+        return super::wayland::list_screens();
+    }
     if process::probe("xrandr", &["--version"]) {
         let output = process::run("xrandr", &["--query"], None)?;
         let screens = output

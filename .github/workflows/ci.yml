@@ -32,6 +32,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-features
+      - name: Install Weston for the headless Wayland test
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y weston
+      - name: Test against headless Weston
+        if: runner.os == 'Linux'
+        run: cargo test --test wayland_desktop -- --ignored
 
   build:
     strategy:

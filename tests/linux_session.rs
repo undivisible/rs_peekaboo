@@ -50,7 +50,7 @@ fn run(session: &str, action: &str, fail: &str) -> String {
             continue;
         }
         let path = dir.path().join(tool);
-        std::fs::write(&path, format!("#!/bin/sh\nif [ \"$1\" = --version ] || [ \"$1\" = -version ]; then exit 0; fi\nprintf '%s' '{tool}' >> \"$TEST_LOG\"\nprintf ' <%s>' \"$@\" >> \"$TEST_LOG\"\nprintf '\\n' >> \"$TEST_LOG\"\n[ '{tool}' != \"$FAIL_TOOL\" ]\n")).unwrap();
+        std::fs::write(&path, format!("#!/bin/sh\nif [ '{tool}' = grim ] && [ \"$1\" = --version ]; then exit 1; fi\nif [ \"$1\" = --version ] || [ \"$1\" = -version ] || [ \"$1\" = -h ]; then exit 0; fi\nprintf '%s' '{tool}' >> \"$TEST_LOG\"\nprintf ' <%s>' \"$@\" >> \"$TEST_LOG\"\nprintf '\\n' >> \"$TEST_LOG\"\n[ '{tool}' != \"$FAIL_TOOL\" ]\n")).unwrap();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     let status = Command::new(std::env::current_exe().unwrap())

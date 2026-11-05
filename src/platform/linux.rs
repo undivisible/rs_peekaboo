@@ -6,6 +6,23 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Session {
+    Wayland,
+    X11,
+    Unknown,
+}
+
+fn session() -> Session {
+    match std::env::var("XDG_SESSION_TYPE").ok().as_deref() {
+        Some("wayland") => Session::Wayland,
+        Some("x11") => Session::X11,
+        _ if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) => Session::Wayland,
+        _ if std::env::var_os("DISPLAY").is_some_and(|v| !v.is_empty()) => Session::X11,
+        _ => Session::Unknown,
+    }
+}
+
 pub fn capture_image(
     mode: ImageMode,
     path: &Path,
@@ -15,20 +32,21 @@ pub fn capture_image(
     if mode != ImageMode::Screen {
         return Err(PeekabooError::UnsupportedPlatform("image mode"));
     }
-    if process::probe("grim", &["--version"]) {
-        let mut args = vec!["-o".to_string(), path.to_string_lossy().into_owned()];
+    if session() == Session::Wayland && process::probe("grim", &["--version"]) {
+        let mut args = Vec::new();
         if let Some(bounds) = region {
             args.push("-g".to_string());
             args.push(format!(
-                "{},{},{},{}",
+                "{},{} {}x{}",
                 bounds.x, bounds.y, bounds.width, bounds.height
             ));
         }
+        args.push(path.to_string_lossy().into_owned());
         let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
         process::run("grim", &refs, None)?;
         return Ok(());
     }
-    if process::probe("scrot", &["--version"]) {
+    if session() == Session::X11 && process::probe("scrot", &["--version"]) {
         if let Some(bounds) = region {
             process::run(
                 "scrot",
@@ -47,24 +65,22 @@ pub fn capture_image(
         }
         return Ok(());
     }
-    if process::probe("import", &["-version"]) {
-        let target = if let Some(bounds) = region {
-            format!(
-                "-window root -crop {}x{}+{}+{}",
+    if session() == Session::X11 && process::probe("import", &["-version"]) {
+        let mut args = vec!["-window".to_string(), "root".to_string()];
+        if let Some(bounds) = region {
+            args.push("-crop".to_string());
+            args.push(format!(
+                "{}x{}{:+}{:+}",
                 bounds.width, bounds.height, bounds.x, bounds.y
-            )
-        } else {
-            "-window root".to_string()
-        };
-        process::run(
-            "import",
-            &[target.as_str(), path.to_string_lossy().as_ref()],
-            None,
-        )?;
+            ));
+        }
+        args.push(path.to_string_lossy().into_owned());
+        let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        process::run("import", &refs, None)?;
         return Ok(());
     }
     Err(PeekabooError::System(
-        "no screenshot tool found; install grim, scrot, or imagemagick".into(),
+        "no screenshot tool found for the desktop session; install grim for Wayland or scrot/imagemagick for X11".into(),
     ))
 }
 
@@ -129,12 +145,17 @@ pub fn list_screens() -> Result<Value> {
 pub fn permissions() -> Value {
     json!({
         "platform": "linux",
-        "screen_recording": process::probe("grim", &["--version"])
-            || process::probe("scrot", &["--version"])
-            || process::probe("import", &["-version"]),
+        "screen_recording": match session() {
+            Session::Wayland => process::probe("grim", &["--version"]),
+            Session::X11 => process::probe("scrot", &["--version"]) || process::probe("import", &["-version"]),
+            Session::Unknown => false,
+        },
         "accessibility": process::probe("xdotool", &["--version"]),
-        "clipboard": process::probe("wl-copy", &["--version"])
-            || process::probe("xclip", &["-version"])
+        "clipboard": match session() {
+            Session::Wayland => process::probe("wl-copy", &["--version"]),
+            Session::X11 => process::probe("xclip", &["-version"]),
+            Session::Unknown => false,
+        }
     })
 }
 
@@ -498,25 +519,25 @@ pub fn menu(action: &str, app: &str, menu: Option<&str>, item: Option<&str>) -> 
 }
 
 pub fn clipboard_read() -> Result<String> {
-    if process::probe("wl-paste", &["--version"]) {
+    if session() == Session::Wayland && process::probe("wl-paste", &["--version"]) {
         return Ok(process::run("wl-paste", &["--no-newline"], None)?.stdout);
     }
-    if process::probe("xclip", &["-version"]) {
+    if session() == Session::X11 && process::probe("xclip", &["-version"]) {
         return Ok(process::run("xclip", &["-selection", "clipboard", "-o"], None)?.stdout);
     }
     Err(PeekabooError::System(
-        "no clipboard tool found; install wl-clipboard or xclip".into(),
+        "no clipboard tool found for the desktop session; install wl-clipboard for Wayland or xclip for X11".into(),
     ))
 }
 
 pub fn clipboard_write(text: &str) -> Result<Value> {
-    if process::probe("wl-copy", &["--version"]) {
+    if session() == Session::Wayland && process::probe("wl-copy", &["--version"]) {
         process::run("wl-copy", &[], Some(text))?;
-    } else if process::probe("xclip", &["-version"]) {
+    } else if session() == Session::X11 && process::probe("xclip", &["-version"]) {
         process::run("xclip", &["-selection", "clipboard"], Some(text))?;
     } else {
         return Err(PeekabooError::System(
-            "no clipboard tool found; install wl-clipboard or xclip".into(),
+            "no clipboard tool found for the desktop session; install wl-clipboard for Wayland or xclip for X11".into(),
         ));
     }
     Ok(json!({ "bytes": text.len() }))

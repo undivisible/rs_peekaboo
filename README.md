@@ -267,6 +267,25 @@ rs-peekaboo permissions status --json
 
 Shell execution is cross-platform and uses the host shell.
 
+## Release 0.3.6 handoff
+
+Do not publish or push a release tag without the owner's explicit approval.
+After approval, merge the staged 0.3.6 version and changelog, verify that the
+release workflow fixes and CI are on `master`, then tag that exact commit
+`v0.3.6` and push the tag. The tag starts the release workflow, which builds
+the GitHub release and publishes the crate. Check the workflow and confirm
+`rs_peekaboo` 0.3.6 is available on crates.io before proceeding. A failed
+publish step is not success; investigate it rather than assuming a rerun can
+republish an existing version.
+
+Immediately afterward, update the `undivisible/poke-around` lockfile to
+select `rs_peekaboo` 0.3.6, run its validation and platform CI, and land that
+lockfile update in its own commit. The current semver requirement already
+allows 0.3.6.
+
+Native Wayland monitor enumeration is not implemented. Interactive macOS and
+Windows desktop behavior has not been verified by this release's CI matrix.
+
 ## Folk Around
 
 `rs_peekaboo` is standalone. It is designed so MCP hosts such as

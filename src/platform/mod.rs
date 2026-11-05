@@ -1,5 +1,8 @@
 pub mod process;
 
+#[cfg(target_os = "linux")]
+mod wayland;
+
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "macos")]

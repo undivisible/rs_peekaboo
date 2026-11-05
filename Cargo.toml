@@ -29,6 +29,10 @@ thiserror = "2.0"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.25"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+wayland-client = "0.31.15"
+wayland-protocols = { version = "=0.32.9", features = ["client", "unstable"] }
+
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"

@@ -74,14 +74,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Publish to crates.io
+      - name: Verify tag matches package version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if cargo info "rs_peekaboo@${VERSION}" >/dev/null 2>&1; then
-            echo "rs_peekaboo ${VERSION} is already published"
-          else
-            cargo publish
-          fi
+          VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "rs_peekaboo") | .version')"
+          test "$GITHUB_REF_NAME" = "v$VERSION"
+      - name: Publish to crates.io
+        run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

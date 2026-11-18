@@ -9,7 +9,19 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          VERSION="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "rs_peekaboo") | .version')"
+          test "$GITHUB_REF_NAME" = "v$VERSION"
+
   release:
+    needs: [validate]
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +41,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cargo build --locked --release --target ${{ matrix.target }}
       - run: cargo install cargo-bundle-licenses --version 4.2.0 --locked
       - run: cargo bundle-licenses --format yaml --output THIRDPARTY.yml
 
@@ -60,26 +72,39 @@ jobs:
           echo "ASSET=$DIR.zip" >> $env:GITHUB_ENV
           echo "ASSET_SHA=$DIR.zip.sha256" >> $env:GITHUB_ENV
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Stage release assets
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: release-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
             ${{ env.ASSET }}
             ${{ env.ASSET_SHA }}
-          generate_release_notes: true
 
-  publish:
+  github_release:
     needs: [release]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Verify tag matches package version
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Verify all release assets
         shell: bash
         run: |
-          VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "rs_peekaboo") | .version')"
-          test "$GITHUB_REF_NAME" = "v$VERSION"
-      - name: Publish to crates.io
-        run: cargo publish --locked
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          cd dist
+          for target in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+            suffix=tar.gz
+            if [ "$target" = x86_64-pc-windows-msvc ]; then suffix=zip; fi
+            asset="rs-peekaboo-${GITHUB_REF_NAME}-${target}.${suffix}"
+            test -f "$asset"
+            test -f "$asset.sha256"
+            read -r expected _ < "$asset.sha256"
+            printf '%s  %s\n' "$expected" "$asset" | sha256sum --check
+          done
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

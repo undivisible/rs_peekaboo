@@ -63,3 +63,38 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
+
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - run: cargo install cargo-bundle-licenses --version 4.2.0 --locked
+      - run: cargo bundle-licenses --format yaml --output THIRDPARTY.yml
+      - name: Package and smoke test
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq 'rs_peekaboo' } | Select-Object -ExpandProperty version
+          $DIR = "rs-peekaboo-v$version-x86_64-pc-windows-msvc"
+          "PACKAGE_DIR=$DIR" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Path $DIR | Out-Null
+          Copy-Item 'target/x86_64-pc-windows-msvc/release/rs-peekaboo.exe', 'LICENSE', 'THIRDPARTY.yml' -Destination $DIR
+          Compress-Archive -Path "$DIR/*" -DestinationPath "$DIR.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$DIR.zip").Hash.ToLower()
+          "$hash  $DIR.zip" | Out-File -FilePath "$DIR.zip.sha256" -Encoding ascii
+          Expand-Archive "$DIR.zip" -DestinationPath unpacked
+          if ((Get-FileHash "unpacked/rs-peekaboo.exe").Hash -ne (Get-FileHash "$DIR/rs-peekaboo.exe").Hash) { throw 'Binary mismatch' }
+          & ./unpacked/rs-peekaboo.exe --help
+          if ($LASTEXITCODE -ne 0) { throw 'Help failed' }
+          & ./unpacked/rs-peekaboo.exe tools
+          if ($LASTEXITCODE -ne 0) { throw 'Tools failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-package
+          if-no-files-found: error
+          path: |
+            ${{ env.PACKAGE_DIR }}.zip
+            ${{ env.PACKAGE_DIR }}.zip.sha256

@@ -110,7 +110,7 @@ fn json_should_reject_invalid_snapshot_id_on_clean() {
 }
 
 #[test]
-fn release_workflow_should_package_notices_and_require_publish() {
+fn release_workflow_should_package_notices_and_stage_assets() {
     let workflow = include_str!("../.github/workflows/release.yml");
     assert!(workflow.contains("cargo install cargo-bundle-licenses --version 4.2.0 --locked"));
     assert!(workflow.contains("cargo bundle-licenses --format yaml --output THIRDPARTY.yml"));
@@ -118,7 +118,7 @@ fn release_workflow_should_package_notices_and_require_publish() {
     assert!(workflow.contains("Copy-Item \"LICENSE\", \"THIRDPARTY.yml\""));
     assert!(workflow.contains("  release:\n    needs: [validate]"));
     assert!(workflow.contains("  github_release:\n    needs: [release]"));
-    assert!(workflow.contains("  publish:\n    needs: [github_release]"));
+    assert!(!workflow.contains("cargo publish"));
     assert!(workflow.contains("if-no-files-found: error"));
     assert!(!workflow.contains("continue-on-error"));
 }
@@ -193,39 +193,4 @@ fn release_gate_rejects_wrong_tags_and_incomplete_or_corrupt_assets() {
     )
     .unwrap();
     assert!(!run(), "corrupt artifact must fail");
-}
-
-#[cfg(unix)]
-#[test]
-fn release_publish_step_attempts_upload_and_propagates_failure() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let workflow = include_str!("../.github/workflows/release.yml");
-    let step = workflow
-        .split("- name: Publish to crates.io\n")
-        .nth(1)
-        .unwrap();
-    let command = step
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("run: "))
-        .unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let cargo = dir.path().join("cargo");
-    std::fs::write(
-        &cargo,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nexit \"$TEST_STATUS\"\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    for status in [0, 37] {
-        let output = std::process::Command::new("/bin/sh")
-            .args(["-c", command])
-            .env("PATH", dir.path())
-            .env("TEST_STATUS", status.to_string())
-            .output()
-            .unwrap();
-        assert_eq!(output.stdout, b"publish --locked\n");
-        assert_eq!(output.status.code(), Some(status));
-    }
 }

@@ -116,7 +116,83 @@ fn release_workflow_should_package_notices_and_require_publish() {
     assert!(workflow.contains("cargo bundle-licenses --format yaml --output THIRDPARTY.yml"));
     assert!(workflow.contains("cp LICENSE THIRDPARTY.yml"));
     assert!(workflow.contains("Copy-Item \"LICENSE\", \"THIRDPARTY.yml\""));
+    assert!(workflow.contains("  release:\n    needs: [validate]"));
+    assert!(workflow.contains("  github_release:\n    needs: [release]"));
+    assert!(workflow.contains("  publish:\n    needs: [github_release]"));
+    assert!(workflow.contains("if-no-files-found: error"));
     assert!(!workflow.contains("continue-on-error"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn release_gate_rejects_wrong_tags_and_incomplete_or_corrupt_assets() {
+    use std::process::Command as Process;
+
+    let workflow = include_str!("../.github/workflows/release.yml");
+    let script = |name: &str| {
+        workflow
+            .split(&format!("- name: {name}\n"))
+            .nth(1)
+            .unwrap()
+            .split("        run: |\n")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .take_while(|line| line.starts_with("          "))
+            .map(|line| &line[10..])
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let validate = script("Verify tag matches package version");
+    let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
+    for (candidate, success) in [(tag.as_str(), true), ("v0.0.0-invalid", false)] {
+        let result = Process::new("bash")
+            .args(["-e", "-o", "pipefail", "-c", &validate])
+            .env("GITHUB_REF_NAME", candidate)
+            .status()
+            .unwrap();
+        assert_eq!(result.success(), success, "tag {candidate}");
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let dist = dir.path().join("dist");
+    std::fs::create_dir(&dist).unwrap();
+    let targets = [
+        ("aarch64-apple-darwin", "tar.gz"),
+        ("x86_64-apple-darwin", "tar.gz"),
+        ("x86_64-unknown-linux-gnu", "tar.gz"),
+        ("x86_64-pc-windows-msvc", "zip"),
+    ];
+    let verify = script("Verify all release assets");
+    let run = || {
+        Process::new("bash")
+            .args(["-e", "-o", "pipefail", "-c", &verify])
+            .current_dir(dir.path())
+            .env("GITHUB_REF_NAME", &tag)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    };
+    assert!(!run(), "empty artifact directory must fail");
+    for (target, suffix) in targets {
+        let name = format!("rs-peekaboo-{tag}-{target}.{suffix}");
+        std::fs::write(dist.join(&name), b"release artifact").unwrap();
+        let checksum = Process::new("sha256sum")
+            .arg(&name)
+            .current_dir(&dist)
+            .output()
+            .unwrap();
+        assert!(checksum.status.success());
+        std::fs::write(dist.join(format!("{name}.sha256")), checksum.stdout).unwrap();
+    }
+    assert!(run(), "all four valid artifact/checksum pairs must pass");
+    std::fs::write(
+        dist.join(format!("rs-peekaboo-{tag}-x86_64-pc-windows-msvc.zip")),
+        b"corrupt",
+    )
+    .unwrap();
+    assert!(!run(), "corrupt artifact must fail");
 }
 
 #[cfg(unix)]
